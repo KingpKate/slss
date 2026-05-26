@@ -177,13 +177,14 @@ const Login: React.FC = () => {
     try {
       if (isLoginMode) {
         const res = await login(formData.username, formData.password);
-        if (res.success) {
-          navigate('/dashboard');
-        } else {
+        if (!res.success) {
           setError(res.message || '登录失败');
           setFormData(prev => ({ ...prev, password: '' }));
           captchaRef.current?.refresh();
         }
+        // On success, don't navigate here — the useEffect watching `user` will handle redirect.
+        // Navigating before React flushes the setUser() state causes ProtectedRoute to see
+        // user=null and bounce back to /login.
       } else {
         // Registration
         const res = await register({
@@ -211,8 +212,7 @@ const Login: React.FC = () => {
       setError('系统错误，请重试');
       captchaRef.current?.refresh();
     } finally {
-      // Ensure loading state is reset even if unmounted
-      if (loading) setLoading(false);
+      setLoading(false);
     }
   };
 

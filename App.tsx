@@ -34,6 +34,12 @@ import ShippingManager from './pages/production/ShippingManager';
 import ProductionSettings from './pages/production/ProductionSettings';
 import QualityDashboard from './pages/production/QualityDashboard';
 import SopManager from './pages/production/SopManager';
+import WorkstationManager from './pages/production/WorkstationManager';
+import RoutingManager from './pages/production/RoutingManager';
+import WorkOrderList from './pages/production/WorkOrderList';
+import SchedulingBoard from './pages/production/SchedulingBoard';
+import InspectionManager from './pages/production/InspectionManager';
+import SPCDashboard from './pages/production/SPCDashboard';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?: Permission; requiredPermissions?: Permission[] }> = ({ children, requiredPermission, requiredPermissions }) => {
   const { user, loading } = useAuth();
@@ -182,6 +188,42 @@ const AppContent = () => {
       <Route path="/production/settings" element={
         <ProtectedRoute requiredPermission="PROD_MANAGE_SETTINGS">
           <ProductionSettings />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/workstations" element={
+        <ProtectedRoute requiredPermission="WS_VIEW">
+          <WorkstationManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/routings" element={
+        <ProtectedRoute requiredPermission="ROUTING_VIEW">
+          <RoutingManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/work-orders" element={
+        <ProtectedRoute requiredPermission="WO_VIEW">
+          <WorkOrderList />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/scheduling" element={
+        <ProtectedRoute requiredPermission="WO_SCHEDULE">
+          <SchedulingBoard />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/inspections" element={
+        <ProtectedRoute requiredPermission="INSP_VIEW">
+          <InspectionManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/spc" element={
+        <ProtectedRoute requiredPermission="SPC_VIEW">
+          <SPCDashboard />
         </ProtectedRoute>
       } />
 

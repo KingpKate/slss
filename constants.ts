@@ -1,5 +1,5 @@
 
-import { OrderStatus, UserRole, Permission, SystemSettings, QuotationStatus, PurchaseOrderStatus, SettlementStatus, FaultCategory } from "./types";
+import { OrderStatus, UserRole, Permission, QuotationStatus, PurchaseOrderStatus, SettlementStatus, FaultCategory, WorkstationStatus, WorkOrderStatus, MaintenanceType } from "./types";
 
 export const APP_NAME = "SLSS - 服务器全生命周期系统";
 
@@ -74,6 +74,17 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'PROD_MANAGE_SCAN_TPL': '管理扫码模版',
   'PROD_SOP_MANAGE': 'SOP管理',
   'PROD_SHIPPING': '物流发货',
+  // V3.0 MES Permissions
+  'WS_VIEW': '查看工作站',
+  'WS_MANAGE': '管理工作站',
+  'ROUTING_VIEW': '查看工艺路线',
+  'ROUTING_MANAGE': '管理工艺路线',
+  'WO_VIEW': '查看工单',
+  'WO_MANAGE': '管理工单',
+  'WO_SCHEDULE': '生产排程',
+  'INSP_VIEW': '查看检验',
+  'INSP_EXECUTE': '执行检验',
+  'SPC_VIEW': '查看SPC',
 };
 
 // V2.0 报价单状态标签
@@ -170,18 +181,61 @@ export const FAULT_CATEGORY_COLORS: Record<string, string> = {
   [FaultCategory.OTHER]: 'bg-gray-100 text-gray-800',
 };
 
-// Helper to determine mode dynamically
-export const isMockMode = (): boolean => {
-  try {
-    const settingsStr = localStorage.getItem('slss_system_settings');
-    if (settingsStr) {
-      const settings: SystemSettings = JSON.parse(settingsStr);
-      return settings.systemMode !== 'production';
-    }
-  } catch (e) {
-    console.warn("Failed to parse system settings, defaulting to Demo mode");
-  }
-  return true;
+// V3.0 工作站状态标签
+export const WORKSTATION_STATUS_LABELS: Record<string, string> = {
+  [WorkstationStatus.IDLE]: '空闲',
+  [WorkstationStatus.RUNNING]: '运行中',
+  [WorkstationStatus.MAINTENANCE]: '维护中',
+  [WorkstationStatus.OFFLINE]: '离线',
 };
 
-export { isMockMode as MOCK_MODE };
+export const WORKSTATION_STATUS_COLORS: Record<string, string> = {
+  [WorkstationStatus.IDLE]: 'bg-green-100 text-green-800',
+  [WorkstationStatus.RUNNING]: 'bg-blue-100 text-blue-800',
+  [WorkstationStatus.MAINTENANCE]: 'bg-yellow-100 text-yellow-800',
+  [WorkstationStatus.OFFLINE]: 'bg-gray-100 text-gray-800',
+};
+
+export const MAINTENANCE_TYPE_LABELS: Record<string, string> = {
+  PREVENTIVE: '预防性维护',
+  CORRECTIVE: '纠正性维护',
+  CALIBRATION: '校准',
+};
+
+// V3.0 工单状态标签
+export const WORK_ORDER_STATUS_LABELS: Record<string, string> = {
+  [WorkOrderStatus.QUEUED]: '排队中',
+  [WorkOrderStatus.IN_PROGRESS]: '进行中',
+  [WorkOrderStatus.BLOCKED]: '已阻塞',
+  [WorkOrderStatus.COMPLETED]: '已完成',
+  [WorkOrderStatus.CANCELLED]: '已取消',
+};
+
+export const WORK_ORDER_STATUS_COLORS: Record<string, string> = {
+  [WorkOrderStatus.QUEUED]: 'bg-gray-100 text-gray-800',
+  [WorkOrderStatus.IN_PROGRESS]: 'bg-blue-100 text-blue-800',
+  [WorkOrderStatus.BLOCKED]: 'bg-red-100 text-red-800',
+  [WorkOrderStatus.COMPLETED]: 'bg-green-100 text-green-800',
+  [WorkOrderStatus.CANCELLED]: 'bg-slate-100 text-slate-600',
+};
+
+// V3.0 检验类别标签
+export const INSPECTION_CATEGORY_LABELS: Record<string, string> = {
+  INCOMING: '来料检验',
+  IN_PROCESS: '过程检验',
+  FINAL: '终检',
+  AGING: '老化检验',
+};
+
+// V3.0 新消息事件类型 (also update types.ts MessageEventType)
+export const V3_MESSAGE_EVENT_LABELS: Record<string, string> = {
+  WORK_ORDER_OVERDUE: '工单逾期',
+  WORK_ORDER_COMPLETED: '工单完成',
+  INSPECTION_FAILED: '检验不合格',
+  SPC_OUT_OF_CONTROL: 'SPC失控',
+};
+
+// Default production operators (sorted by pinyin)
+export const DEFAULT_OPERATORS: string[] = [
+  '丁一', '张三', '李四', '王五', '赵六', '陈七'
+].sort((a, b) => a.localeCompare(b, 'zh-CN'));

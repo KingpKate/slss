@@ -5,10 +5,10 @@ import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeContext';
 import { Permission, ProcessTemplate } from '../types';
 import {
-  LayoutDashboard, Wrench, ScanLine, Shield, LogOut, Menu, Server, Search,
-  Hammer, GitMerge, ChevronDown, ChevronRight, Settings, FileText, Layers, FileCode,
+  LayoutDashboard, Wrench, ScanLine, LogOut, Menu, Server, Search,
+  Hammer, GitMerge, ChevronDown, ChevronRight, Settings, Layers, FileCode,
   DollarSign, ShoppingCart, FileSpreadsheet, CreditCard, BarChart3, Truck, ClipboardList,
-  QrCode, Sliders, BookOpen, Package, Activity
+  QrCode, Sliders, BookOpen, Activity, Cog, Route, ListChecks, LineChart, ClipboardCheck, BarChart2
 } from 'lucide-react';
 import { ROLE_LABELS } from '../constants';
 
@@ -55,6 +55,18 @@ const STATIC_MENU_GROUPS = [
     ]
   },
   {
+    id: 'mes',
+    title: 'MES 生产执行',
+    items: [
+      { to: '/production/workstations', icon: Cog, label: '工作站管理', permission: 'WS_VIEW' },
+      { to: '/production/routings', icon: Route, label: '工艺路线', permission: 'ROUTING_VIEW' },
+      { to: '/production/work-orders', icon: ListChecks, label: '生产工单', permission: 'WO_VIEW' },
+      { to: '/production/scheduling', icon: BarChart2, label: '生产排程', permission: 'WO_SCHEDULE' },
+      { to: '/production/inspections', icon: ClipboardCheck, label: '检验计划', permission: 'INSP_VIEW' },
+      { to: '/production/spc', icon: LineChart, label: 'SPC控制图', permission: 'SPC_VIEW' },
+    ]
+  },
+  {
     id: 'workflow',
     title: '自建流程引擎',
     items: [
@@ -75,6 +87,31 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { themeConfig } = useTheme();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<'ok' | 'error' | 'loading'>('loading');
+
+  // Health check: ping /api/health every 30 seconds
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health', {
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)])
+        });
+        if (mounted) setHealthStatus(res.ok ? 'ok' : 'error');
+      } catch {
+        if (mounted) setHealthStatus('error');
+      }
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+    return () => {
+      mounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, []);
   
   // State for collapsible groups (default all open)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
@@ -82,6 +119,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     'service': true,
     'finance': true,
     'production': true,
+    'mes': true,
     'workflow': true,
     'system': true
   });
@@ -207,6 +245,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <div className="flex flex-col">
              <span className="text-lg font-bold tracking-wide leading-none">SLSS Pro</span>
              <span className="text-[10px] text-gray-400 font-mono tracking-widest mt-1">V2.0.0</span>
+             <div className="flex items-center mt-1">
+                <span className={`w-1.5 h-1.5 rounded-full mr-1 ${
+                  healthStatus === 'ok' ? 'bg-green-400' :
+                  healthStatus === 'error' ? 'bg-red-400 animate-pulse' :
+                  'bg-gray-400 animate-pulse'
+                }`} />
+                <span className="text-[9px] text-gray-500">
+                  {healthStatus === 'ok' ? '后端已连接' :
+                   healthStatus === 'error' ? '后端连接断开' :
+                   '检测中...'}
+                </span>
+             </div>
           </div>
         </div>
 

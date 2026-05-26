@@ -4,11 +4,11 @@ import { UserRole, Permission, DatabaseConfig, RedisConfig, SystemStatus, AIConf
 import { testAIConnection } from '../services/geminiService';
 import { getNotificationConfig, saveNotificationConfig } from '../services/notificationService';
 import { useTheme } from '../components/ThemeContext';
-import { DEFAULT_OPERATORS } from '../services/mockData';
-import { 
-  Shield, UserCheck, Settings, Save, Key, Globe, Cpu, AlertCircle, CheckCircle, 
-  Database, Activity, Server, HardDrive, Zap, RefreshCw, Lock, Radio, Network,
-  Palette, UserPlus, Trash2, Check, X, Bell, Mail, MessageSquare, List, Users, Play, ToggleLeft, ToggleRight, Layers
+import { DEFAULT_OPERATORS } from '../constants';
+import {
+  UserCheck, Settings, Save, Key, Globe, Cpu, AlertCircle, CheckCircle,
+  Database, Activity, HardDrive, Zap, RefreshCw, Lock, Network,
+  UserPlus, Trash2, Check, Bell, Mail, MessageSquare, List, Users
 } from 'lucide-react';
 import { ROLE_LABELS, PERMISSION_LABELS } from '../constants';
 
@@ -46,13 +46,15 @@ const AdminPanel: React.FC = () => {
   const [redisConfig, setRedisConfig] = useState<RedisConfig>({ enabled: true, host: 'localhost', port: 6379, dbIndex: 0 });
   const [aiConfig, setAiConfig] = useState<AIConfig>({ provider: 'google', model: 'gemini-2.5-flash', baseUrl: '', apiKey: '' });
   const [notifyConfig, setNotifyConfig] = useState<NotificationConfig>(getNotificationConfig());
-  const [sysSettings, setSysSettings] = useState<SystemSettings>({ 
-    appName: 'SLSS', 
-    systemMode: 'demo', // Default to Demo mode for stability in preview
-    maintenanceMode: false, 
-    logRetentionDays: 30, 
-    defaultAssigneeId: undefined, 
-    productionOperators: DEFAULT_OPERATORS 
+  const [sysSettings, setSysSettings] = useState<SystemSettings>({
+    appName: 'SLSS',
+    maintenanceMode: false,
+    logRetentionDays: 30,
+    defaultAssigneeId: undefined,
+    productionOperators: DEFAULT_OPERATORS,
+    quality_lock_threshold: 3,
+    scheduling_strategy: 'EDD',
+    dashboard_refresh_seconds: 30
   });
   
   // Security Settings
@@ -88,11 +90,20 @@ const AdminPanel: React.FC = () => {
     loadConfig('slss_system_settings', setSysSettings);
 
     // Load Security Settings from API
-    // Note: In Mock Mode this will likely fail silently or we can mock it, but for Admin Panel UI it's fine.
     fetch('/api/admin/security-settings')
       .then(res => res.json())
       .then(data => { if(mountedRef.current) setSecuritySettings(data); })
-      .catch(e => console.warn("Failed to load security settings (Backend Offline)", e));
+      .catch(e => console.warn("Failed to load security settings", e));
+
+    // Load MES Settings from API (overrides localStorage defaults)
+    fetch('/api/admin/mes-settings')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && mountedRef.current) {
+          setSysSettings(prev => ({ ...prev, ...data }));
+        }
+      })
+      .catch(e => console.warn("Failed to load MES settings", e));
   }, []);
 
   useEffect(() => {
@@ -111,19 +122,30 @@ const AdminPanel: React.FC = () => {
     }
   }, [activeTab]);
 
-  const handleSave = (key: string, data: any, msg: string) => {
+  const handleSave = async (key: string, data: any, msg: string) => {
     try {
-      if (key === 'slss_notification_config') saveNotificationConfig(data);
-      else localStorage.setItem(key, JSON.stringify(data));
-      setSaveStatus({ type: 'success', message: msg });
-      
-      // Force reload if system mode changed
-      if (key === 'slss_system_settings') {
-         setTimeout(() => window.location.reload(), 1500); // Reload to apply new mode
-         msg += " (页面即将刷新以应用更改)";
+      if (key === 'slss_notification_config') {
+        saveNotificationConfig(data);
       } else {
-         setTimeout(() => { if (mountedRef.current) setSaveStatus(null); }, 3000);
+        localStorage.setItem(key, JSON.stringify(data));
       }
+
+      // Persist MES settings to backend DB
+      if (key === 'slss_system_settings') {
+        const mesPayload = {
+          quality_lock_threshold: data.quality_lock_threshold,
+          scheduling_strategy: data.scheduling_strategy,
+          dashboard_refresh_seconds: data.dashboard_refresh_seconds
+        };
+        await fetch('/api/admin/mes-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(mesPayload)
+        });
+      }
+
+      setSaveStatus({ type: 'success', message: msg });
+      setTimeout(() => { if (mountedRef.current) setSaveStatus(null); }, 3000);
     } catch (e: any) {
       setSaveStatus({ type: 'error', message: '保存失败: ' + e.message });
     }
@@ -342,39 +364,47 @@ const AdminPanel: React.FC = () => {
                         <button onClick={handleSaveSecurity} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700">更新策略</button>
                     </div>
                  </div>
-                 
-                 {/* System Mode Switch */}
-                 <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                    <h3 className="text-sm font-bold text-purple-800 mb-3 flex items-center">
-                       <Layers className="w-4 h-4 mr-2" /> 系统运行模式 (System Environment)
+
+                 {/* MES Production Configuration */}
+                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <h3 className="text-sm font-bold text-blue-800 mb-3 flex items-center">
+                       <Settings className="w-4 h-4 mr-2" /> MES 生产参数配置
                     </h3>
-                    <div className="flex space-x-4">
-                        <label className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all flex-1 ${sysSettings.systemMode === 'production' ? 'bg-white border-purple-500 shadow-sm ring-1 ring-purple-500' : 'bg-transparent border-transparent hover:bg-purple-100'}`}>
-                           <input 
-                              type="radio" 
-                              name="sysMode" 
-                              checked={sysSettings.systemMode === 'production'} 
-                              onChange={() => setSysSettings({...sysSettings, systemMode: 'production'})}
-                              className="mr-3"
-                           />
-                           <div>
-                              <div className="font-bold text-gray-800">生产模式 (Production)</div>
-                              <div className="text-xs text-gray-500">连接真实 MySQL 数据库，启用完整功能与日志记录。</div>
-                           </div>
-                        </label>
-                        <label className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all flex-1 ${sysSettings.systemMode === 'demo' ? 'bg-white border-orange-500 shadow-sm ring-1 ring-orange-500' : 'bg-transparent border-transparent hover:bg-orange-100'}`}>
-                           <input 
-                              type="radio" 
-                              name="sysMode" 
-                              checked={sysSettings.systemMode === 'demo' || !sysSettings.systemMode} 
-                              onChange={() => setSysSettings({...sysSettings, systemMode: 'demo'})}
-                              className="mr-3"
-                           />
-                           <div>
-                              <div className="font-bold text-gray-800">演示模式 (Demo / Mock)</div>
-                              <div className="text-xs text-gray-500">使用浏览器内存与本地模拟数据，无需后端 DB。</div>
-                           </div>
-                        </label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                       <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-1">质量全局熔断阈值 (%)</label>
+                          <input
+                             type="number"
+                             min={0} max={100} step={0.1}
+                             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                             value={sysSettings.quality_lock_threshold ?? 3}
+                             onChange={e => setSysSettings({...sysSettings, quality_lock_threshold: Number(e.target.value)})}
+                          />
+                          <p className="text-[10px] text-gray-500 mt-1">配件不良率超过此阈值时，自动锁定相关财务结算</p>
+                       </div>
+                       <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-1">默认排程策略</label>
+                          <select
+                             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                             value={sysSettings.scheduling_strategy ?? 'EDD'}
+                             onChange={e => setSysSettings({...sysSettings, scheduling_strategy: e.target.value as 'EDD' | 'FIFO'})}
+                          >
+                             <option value="EDD">EDD 最早交期优先</option>
+                             <option value="FIFO">FIFO 先进先出</option>
+                          </select>
+                          <p className="text-[10px] text-gray-500 mt-1">生产工单自动排程时使用的默认策略</p>
+                       </div>
+                       <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-1">车间大屏刷新频率 (秒)</label>
+                          <input
+                             type="number"
+                             min={5} max={300}
+                             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                             value={sysSettings.dashboard_refresh_seconds ?? 30}
+                             onChange={e => setSysSettings({...sysSettings, dashboard_refresh_seconds: Number(e.target.value)})}
+                          />
+                          <p className="text-[10px] text-gray-500 mt-1">生产看板/排程大屏的数据自动刷新间隔</p>
+                       </div>
                     </div>
                  </div>
 

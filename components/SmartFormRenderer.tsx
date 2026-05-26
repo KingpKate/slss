@@ -1,7 +1,6 @@
 import React from 'react';
 import { FormFieldConfig } from '../types';
 import { User, Upload, Calendar, Users, FileText, AlertCircle, CheckSquare, Info, Loader2 } from 'lucide-react';
-import { MOCK_USERS } from '../services/mockData';
 
 interface SmartFormRendererProps {
   schema: FormFieldConfig[];
@@ -13,6 +12,14 @@ interface SmartFormRendererProps {
 
 export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({ schema, data, errors = {}, onChange, readOnly = false }) => {
   const [uploading, setUploading] = React.useState<string | null>(null); // Track uploading field ID
+  const [userList, setUserList] = React.useState<{id: number; username: string; role: string}[]>([]);
+
+  React.useEffect(() => {
+    fetch('/api/users')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => { if (Array.isArray(data)) setUserList(data); })
+      .catch(() => {});
+  }, []);
 
   const handleChange = (key: string, value: any) => {
     if (onChange) onChange(key, value);
@@ -206,7 +213,7 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({ schema, da
                       onChange={(e) => handleChange(field.label, e.target.value)}
                     >
                       <option value="">选择人员</option>
-                      {MOCK_USERS.map(u => <option key={u.id} value={u.username}>{u.username} ({u.role})</option>)}
+                      {userList.map(u => <option key={u.id} value={u.username}>{u.username} ({u.role})</option>)}
                     </select>
                     <User className="absolute left-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>

@@ -1,8 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, Permission } from '../types';
-import { MOCK_MODE } from '../constants';
-import { MOCK_USERS } from '../services/mockData';
 import bcrypt from 'bcryptjs';
 
 interface RegisterData {
@@ -48,10 +46,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const fetchUsers = async () => {
-    if (MOCK_MODE()) {
-      if (usersList.length === 0) setUsersList(MOCK_USERS);
-      return;
-    }
     try {
       const res = await fetch('/api/users');
       if (res.ok) {
@@ -59,33 +53,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUsersList(data);
       }
     } catch (e) {
-      console.error("Failed to fetch users");
+      console.error("Failed to fetch users:", e);
     }
   };
 
   const login = async (username: string, password?: string): Promise<{success: boolean; message?: string}> => {
-    if (MOCK_MODE()) {
-      await new Promise(r => setTimeout(r, 600));
-      const sourceUsers = usersList.length > 0 ? usersList : MOCK_USERS;
-      const foundUser = sourceUsers.find(u => u.username === username);
-
-      if (foundUser && foundUser.password) {
-        // bcrypt comparison for mock mode
-        const passwordMatch = await bcrypt.compare(password || '', foundUser.password);
-        if (!passwordMatch) {
-          return { success: false, message: '用户名或密码错误 (演示模式)' };
-        }
-        if (foundUser.status !== 'active') {
-          return { success: false, message: '账号审核中，请联系管理员' };
-        }
-        const { password: _, ...safeUser } = foundUser;
-        setUser(safeUser as User);
-        localStorage.setItem('slss_user', JSON.stringify(safeUser));
-        return { success: true };
-      }
-      return { success: false, message: '用户名或密码错误 (演示模式)' };
-    }
-
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -115,26 +87,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (data: RegisterData): Promise<{success: boolean; message?: string}> => {
-    const hashedPassword = await bcrypt.hash(data.password || '', 10);
-    const newUser: User = {
-      id: Date.now(),
-      ...data,
-      password: hashedPassword,
-      status: 'pending',
-      permissions: getDefaultPermissions(data.role)
-    };
-
-    if (MOCK_MODE()) {
-      await new Promise(r => setTimeout(r, 600));
-      setUsersList(prev => [...prev, newUser]);
-      return { success: true, message: '注册申请已提交 (演示模式)' };
-    }
-
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify(data)
       });
       const result = await res.json();
       if (result.success) {
@@ -155,27 +112,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // --- Admin Functions ---
 
   const updateUserStatus = async (id: number, status: 'active' | 'pending') => {
-    if (MOCK_MODE()) {
-      setUsersList(prev => prev.map(u => u.id === id ? { ...u, status } : u));
-      return;
-    }
     try {
-      await fetch(`/api/users/${id}`, {
+      const res = await fetch(`/api/users/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       setUsersList(prev => prev.map(u => u.id === id ? { ...u, status } : u));
     } catch (e) { console.error(e); }
   };
 
   const deleteUser = async (id: number) => {
-    if (MOCK_MODE()) {
-      setUsersList(prev => prev.filter(u => u.id !== id));
-      return;
-    }
     try {
-      await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       setUsersList(prev => prev.filter(u => u.id !== id));
     } catch (e) { console.error(e); }
   };
@@ -191,17 +142,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : getDefaultPermissions(userData.role)
     };
 
-    if (MOCK_MODE()) {
-      setUsersList(prev => [...prev, newUser]);
-      return;
-    }
-
     try {
-      await fetch('/api/users', {
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser)
       });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       fetchUsers();
     } catch (e) { console.error(e); }
   };

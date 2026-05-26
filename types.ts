@@ -49,6 +49,17 @@ export type Permission =
   | 'PROD_MANAGE_SCAN_TPL'
   | 'PROD_SOP_MANAGE'
   | 'PROD_SHIPPING'
+  // V3.0 MES Permissions:
+  | 'WS_VIEW'
+  | 'WS_MANAGE'
+  | 'ROUTING_VIEW'
+  | 'ROUTING_MANAGE'
+  | 'WO_VIEW'
+  | 'WO_MANAGE'
+  | 'WO_SCHEDULE'
+  | 'INSP_VIEW'
+  | 'INSP_EXECUTE'
+  | 'SPC_VIEW'
 
 export enum OrderStatus {
   PENDING = 'PENDING',
@@ -274,7 +285,6 @@ export interface NotificationConfig {
 }
 export interface SystemSettings {
   appName: string;
-  systemMode: 'production' | 'demo';
   maintenanceMode: boolean;
   logRetentionDays: number;
   defaultAssigneeId?: number;
@@ -284,6 +294,10 @@ export interface SystemSettings {
   inventory_aging_days?: number;       // 库龄预警天数, 默认5
   delivery_reminder_days?: number;     // 交期提醒天数, 默认7
   defect_rate_lock_threshold?: number; // 不良率锁定阈值(%), 默认3
+  // MES Configuration:
+  quality_lock_threshold?: number;      // 质量全局熔断阈值(%), 默认3
+  scheduling_strategy?: 'EDD' | 'FIFO'; // 默认排程策略, 默认'EDD'
+  dashboard_refresh_seconds?: number;   // 车间大屏刷新频率(秒), 默认30
 }
 export interface SystemStatus {
   cpuUsage: number;
@@ -812,7 +826,12 @@ export type MessageEventType =
   | 'OVERDUE_PAYMENT'
   | 'ORDER_CREATED'
   | 'ORDER_ASSIGNED'
-  | 'ORDER_CLOSED';
+  | 'ORDER_CLOSED'
+  // V3.0 MES Events:
+  | 'WORK_ORDER_OVERDUE'
+  | 'WORK_ORDER_COMPLETED'
+  | 'INSPECTION_FAILED'
+  | 'SPC_OUT_OF_CONTROL';
 
 export type MessageChannel = 'wecom' | 'dingtalk' | 'feishu' | 'email' | 'all';
 
@@ -837,4 +856,198 @@ export interface MessagePayload {
   target_users?: number[];
   channel?: MessageChannel;
   immediate?: boolean;
+}
+
+// =============================================================================
+// PART 5: V3.0 NEW TYPES - MES Core Features
+// =============================================================================
+
+// --- Workstation ---
+export enum WorkstationStatus {
+  IDLE = 'IDLE',
+  RUNNING = 'RUNNING',
+  MAINTENANCE = 'MAINTENANCE',
+  OFFLINE = 'OFFLINE',
+}
+
+export interface Workstation {
+  id: number;
+  name: string;
+  code: string;
+  line: string;
+  location: string;
+  capabilities: string[] | null;
+  status: WorkstationStatus;
+  current_operator_id: number | null;
+  max_concurrent_tasks: number;
+  notes: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MaintenanceType = 'PREVENTIVE' | 'CORRECTIVE' | 'CALIBRATION';
+export type MaintenanceStatus = 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED';
+
+export interface MaintenanceRecord {
+  id: number;
+  workstation_id: number;
+  type: MaintenanceType;
+  description: string;
+  performed_by: string;
+  started_at: string;
+  completed_at: string | null;
+  status: MaintenanceStatus;
+}
+
+// --- Routing ---
+export interface RoutingTemplate {
+  id: string;
+  name: string;
+  model: string;
+  description: string;
+  steps: RoutingStep[];
+  is_active: boolean;
+  created_by?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RoutingStep {
+  id: number;
+  routing_id: string;
+  step_seq: number;
+  step_name: string;
+  workstation_id: number | null;
+  standard_time_min: number;
+  sop_document_id: number | null;
+  is_required: boolean;
+  description: string;
+}
+
+// --- Work Order ---
+export enum WorkOrderStatus {
+  QUEUED = 'QUEUED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  BLOCKED = 'BLOCKED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export interface WorkOrder {
+  id: string;
+  machine_sn: string;
+  contract_no: string;
+  quotation_id: string;
+  routing_id: string;
+  current_step_seq: number;
+  status: WorkOrderStatus;
+  priority: number;
+  planned_start: string | null;
+  planned_end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  assigned_to: number | null;
+  notes: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// --- Inspection ---
+export interface InspectionItem {
+  name: string;
+  spec_min: number;
+  spec_max: number;
+  unit: string;
+  method: string;
+}
+
+export interface InspectionPlan {
+  id: number;
+  name: string;
+  category: string;
+  applicable_model: string | null;
+  items: InspectionItem[];
+  is_active: boolean;
+  created_by?: number;
+  created_at?: string;
+}
+
+export interface InspectionResult {
+  id: number;
+  plan_id: number;
+  machine_sn: string;
+  work_order_id: string | null;
+  inspector_id: number | null;
+  inspector_name: string;
+  results: Record<string, { value: number; pass: boolean }>;
+  overall_result: 'PASS' | 'FAIL' | 'CONDITIONAL';
+  notes: string;
+  inspected_at: string;
+}
+
+// --- Material Usage ---
+export interface MaterialUsage {
+  id: number;
+  machine_sn: string;
+  work_order_id: string | null;
+  component_type: string;
+  component_model: string;
+  bom_planned_qty: number;
+  actual_qty: number;
+  variance_reason: string;
+  operator_id: number | null;
+  operator_name: string;
+  recorded_at: string;
+}
+
+// --- SPC ---
+export interface Measurement {
+  id: number;
+  machine_sn: string;
+  work_order_id: string | null;
+  routing_step_id: number | null;
+  parameter_name: string;
+  value: number;
+  unit: string;
+  spec_min: number | null;
+  spec_max: number | null;
+  operator_id: number | null;
+  recorded_at: string;
+}
+
+export interface ControlLimits {
+  center_line: number;
+  ucl: number;
+  lcl: number;
+  r_bar: number;
+}
+
+export interface SPCChartData {
+  data_points: { index: number; value: number; timestamp: string; out_of_control: boolean }[];
+  control_limits: ControlLimits;
+  stats: { mean: number; std_dev: number; cp: number | null; cpk: number | null; n: number };
+}
+
+// --- Scheduling ---
+export interface ScheduleEntry {
+  work_order_id: string;
+  machine_sn: string;
+  routing_name: string;
+  workstation_id: number | null;
+  workstation_name: string;
+  step_seq: number;
+  step_name: string;
+  planned_start: string;
+  planned_end: string;
+  status: WorkOrderStatus;
+  priority: number;
+}
+
+export interface CapacityInfo {
+  workstation_id: number;
+  workstation_name: string;
+  current_tasks: number;
+  max_tasks: number;
+  utilization_pct: number;
 }

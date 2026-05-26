@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { MOCK_USERS } from '../services/mockData';
 import { STATUS_COLORS, STATUS_LABELS } from '../constants';
 import { sendNotification } from '../services/notificationService';
 import { Plus, Search, X, User, Server, AlertCircle, Activity, LayoutGrid, List, Clock, Download, Upload, GitMerge, Loader2 } from 'lucide-react';

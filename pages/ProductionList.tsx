@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { MOCK_LIFECYCLE } from '../services/mockData';
 import { Asset, LifecycleEvent } from '../types';
-import { Search, Filter, Eye, Download, Server, CircuitBoard, HardDrive, Zap, History, ArrowRight, GitCommit, Calendar, FileText, Wrench, Loader2 } from 'lucide-react';
+import { Search, Filter, Eye, Download, Server, History, FileText, Wrench, Loader2 } from 'lucide-react';
 
 const ProductionQuery: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,15 +64,30 @@ const ProductionQuery: React.FC = () => {
     return searchableFields.some(field => field.includes(term));
   });
 
-  // Get Lifecycle history (Mock for now, should ideally fetch /api/lifecycle)
-  const getAssetHistory = (sn: string): LifecycleEvent[] => {
-    return MOCK_LIFECYCLE.filter(e => e.machine_sn === sn).sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-  };
+  const [lifecycleEvents, setLifecycleEvents] = useState<LifecycleEvent[]>([]);
 
-  const getRepairHistory = (sn: string) => {
-    return getAssetHistory(sn).filter(e => e.event_type === 'PROD_REPAIR' || e.event_type === 'REPAIR_SWAP');
+  // Fetch lifecycle history when asset is selected
+  useEffect(() => {
+    if (!selectedAsset) { setLifecycleEvents([]); return; }
+    const fetchLifecycle = async () => {
+      try {
+        const res = await fetch(`/api/lifecycle?machine_sn=${encodeURIComponent(selectedAsset.machine_sn)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setLifecycleEvents(Array.isArray(data) ? data.sort((a: LifecycleEvent, b: LifecycleEvent) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          ) : []);
+        }
+      } catch (e) {
+        console.error('Failed to fetch lifecycle:', e);
+        setLifecycleEvents([]);
+      }
+    };
+    fetchLifecycle();
+  }, [selectedAsset]);
+
+  const getRepairHistory = () => {
+    return lifecycleEvents.filter(e => e.event_type === 'PROD_REPAIR' || e.event_type === 'REPAIR_SWAP');
   };
 
   const handleExport = () => {
@@ -268,7 +282,7 @@ const ProductionQuery: React.FC = () => {
 
                {activeTab === 'history' && (
                   <div className="space-y-6 border-l-2 border-gray-200 ml-4 pl-6 relative">
-                      {getAssetHistory(selectedAsset.machine_sn).map((e, i) => (
+                      {lifecycleEvents.map((e, i) => (
                           <div key={i} className="relative">
                               <div className="absolute -left-[31px] top-0 w-6 h-6 bg-white border-2 border-blue-500 rounded-full flex items-center justify-center">
                                   <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
@@ -286,7 +300,7 @@ const ProductionQuery: React.FC = () => {
 
                {activeTab === 'bad_parts' && (
                   <div>
-                      {getRepairHistory(selectedAsset.machine_sn).length > 0 ? (
+                      {getRepairHistory().length > 0 ? (
                           <table className="min-w-full divide-y divide-gray-200 border">
                               <thead className="bg-red-50">
                                   <tr>
@@ -299,7 +313,7 @@ const ProductionQuery: React.FC = () => {
                                   </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-200">
-                                  {getRepairHistory(selectedAsset.machine_sn).map((e, i) => (
+                                  {getRepairHistory().map((e, i) => (
                                       <tr key={i}>
                                           <td className="p-2 text-xs">{new Date(e.timestamp).toLocaleDateString()}</td>
                                           <td className="p-2 text-xs">{e.part_name}</td>

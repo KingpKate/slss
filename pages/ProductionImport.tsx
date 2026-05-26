@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Trash2, Check, Loader2, AlertCircle, ScanLine, Database, Wifi, WifiOff, ChevronRight, ArrowLeft, FileSpreadsheet, Save, Settings, X, Columns, ArrowDownToLine, Upload, FileDown, Table, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, Check, Loader2, AlertCircle, ScanLine, Database, ChevronRight, ArrowLeft, FileSpreadsheet, Save, Settings, X, Columns, ArrowDownToLine, Upload, Table, CheckCircle } from 'lucide-react';
 import { Asset, SystemSettings } from '../types';
-import { DEFAULT_OPERATORS } from '../services/mockData';
+import { DEFAULT_OPERATORS } from '../constants';
 import { useAuth } from '../components/AuthContext';
-import { MOCK_MODE } from '../constants';
 
 // --- Types ---
 
@@ -42,8 +41,6 @@ interface ColumnGroup {
 }
 
 // --- Constants & Helpers ---
-const LOCAL_STORAGE_INDEX_KEY = 'slss_prod_index';
-const getLocalKey = (contractNo: string) => `slss_prod_batch_${contractNo}`;
 
 // Priority map for column ordering
 const TYPE_PRIORITY: Record<string, number> = {
@@ -595,39 +592,20 @@ const ContractDashboard: React.FC<{
   
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isOffline, setIsOffline] = useState(MOCK_MODE());
 
-  // Load list from server or local
+  // Load list from server
   useEffect(() => {
     const fetchContracts = async () => {
-      // FORCE OFFLINE LOGIC IF MOCK MODE
-      if (MOCK_MODE()) {
-          setIsOffline(true);
-          try {
-            const localData = localStorage.getItem(LOCAL_STORAGE_INDEX_KEY);
-            if (localData) {
-              setContracts(JSON.parse(localData));
-            }
-          } catch(e) {}
-          setLoading(false);
-          return;
-      }
-
-      // PRODUCTION MODE LOGIC
       try {
         const res = await fetch('/api/production/list');
         if (!res.ok) throw new Error("API Unavailable");
-        
+
         const data = await res.json();
         if (Array.isArray(data)) {
           setContracts(data);
-          setIsOffline(false);
         }
       } catch (err: any) {
-        console.warn("Production API failed, showing error state:", err);
-        // In strict Production mode, we do NOT fallback to local storage passively 
-        // to avoid confusion, unless explicitly disconnected.
-        setIsOffline(true); // Indicate connection issue
+        console.error("Production API failed:", err);
       } finally {
         setLoading(false);
       }
@@ -646,15 +624,11 @@ const ContractDashboard: React.FC<{
     <div className="space-y-6 animate-in fade-in">
        <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+            <h1 className="text-2xl font-bold text-gray-900">
               生产录入系统
-              {isOffline ? 
-                 <span className="ml-3 px-2 py-0.5 rounded bg-gray-200 text-gray-600 text-xs font-normal flex items-center" title="当前为演示模式或服务器断开"><WifiOff className="w-3 h-3 mr-1"/> 离线/演示</span> : 
-                 <span className="ml-3 px-2 py-0.5 rounded bg-green-100 text-green-700 text-xs font-normal flex items-center" title="已连接生产数据库"><Wifi className="w-3 h-3 mr-1"/> 在线</span>
-              }
             </h1>
             <p className="text-gray-500 text-sm mt-1">
-              {isOffline ? "本地模式：数据仅保存在浏览器缓存中，清除缓存将丢失。" : "生产模式：数据实时保存至后端 MySQL 数据库。"}
+              数据实时保存至后端 MySQL 数据库
             </p>
           </div>
           <div className="flex space-x-3">
@@ -923,21 +897,7 @@ const EntryGrid: React.FC<{
 
     const initData = async () => {
       setLoading(true);
-      
-      // BRANCH 1: Mock Mode (LocalStorage)
-      if (MOCK_MODE()) {
-         const local = localStorage.getItem(getLocalKey(contractNo));
-         if (local) {
-            const json = JSON.parse(local);
-            setRows(json.data);
-            if (json.columnConfig) setColumns(json.columnConfig);
-            setLastSavedTime(new Date(json.lastUpdated).toLocaleTimeString());
-         }
-         setLoading(false);
-         return;
-      }
 
-      // BRANCH 2: Production Mode (API)
       try {
         const res = await fetch(`/api/production/load/${contractNo}`);
         if (res.ok) {
@@ -945,12 +905,11 @@ const EntryGrid: React.FC<{
            if (json.data && Array.isArray(json.data)) {
              setRows(json.data);
              if (json.columnConfig) {
-                setColumns(json.columnConfig); 
+                setColumns(json.columnConfig);
              }
              setLastSavedTime(new Date(json.lastUpdated).toLocaleTimeString());
            }
         } else if (res.status === 404) {
-           // Not found is fine for new, but we usually won't hit this unless manually navigating
            setStatusMsg({ type: 'info', text: '全新批次' });
         } else {
            throw new Error("Failed to load");
@@ -1079,38 +1038,14 @@ const EntryGrid: React.FC<{
     };
 
     try {
-        // BRANCH 1: Mock Mode (LocalStorage)
-        if (MOCK_MODE()) {
-            localStorage.setItem(getLocalKey(contractNo), JSON.stringify(payload));
-            // Update Index
-            const indexStr = localStorage.getItem(LOCAL_STORAGE_INDEX_KEY);
-            const index: ContractSummary[] = indexStr ? JSON.parse(indexStr) : [];
-            const existingIdx = index.findIndex(i => i.contractNo === contractNo);
-            const summary: ContractSummary = {
-                contractNo, 
-                model: dataToSave[0]?.model || 'Unknown',
-                customerName: dataToSave[0]?.customer_name,
-                count: payload.stats.filled,
-                totalRows: payload.stats.count,
-                lastUpdated: payload.lastUpdated
-            };
-            if (existingIdx >= 0) index[existingIdx] = summary;
-            else index.push(summary);
-            localStorage.setItem(LOCAL_STORAGE_INDEX_KEY, JSON.stringify(index));
+        const res = await fetch('/api/production/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-            if (!silent) setStatusMsg({ type: 'success', text: '保存成功 (本地离线)' });
-        } 
-        // BRANCH 2: Production Mode (API)
-        else {
-            const res = await fetch('/api/production/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            
-            if (!res.ok) throw new Error("API Save Error");
-            if (!silent) setStatusMsg({ type: 'success', text: '保存成功 (服务器)' });
-        }
+        if (!res.ok) throw new Error("API Save Error");
+        if (!silent) setStatusMsg({ type: 'success', text: '保存成功' });
 
         setIsSaving(false);
         setLastSavedTime(new Date().toLocaleTimeString());
