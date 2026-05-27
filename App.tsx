@@ -40,11 +40,18 @@ import WorkOrderList from './pages/production/WorkOrderList';
 import SchedulingBoard from './pages/production/SchedulingBoard';
 import InspectionManager from './pages/production/InspectionManager';
 import SPCDashboard from './pages/production/SPCDashboard';
+import MaterialMaster from './pages/production/MaterialMaster';
+import InventoryManager from './pages/production/InventoryManager';
+import BomManager from './pages/production/BomManager';
+import MRPManager from './pages/production/MRPManager';
+import EquipmentManager from './pages/production/EquipmentManager';
+import ShopfloorBoard from './pages/production/ShopfloorBoard';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?: Permission; requiredPermissions?: Permission[] }> = ({ children, requiredPermission, requiredPermissions }) => {
   const { user, loading } = useAuth();
   if (loading) return <div>Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'ADMIN') return <Layout>{children}</Layout>;
   if (requiredPermission && !user.permissions.includes(requiredPermission)) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -224,6 +231,42 @@ const AppContent = () => {
       <Route path="/production/spc" element={
         <ProtectedRoute requiredPermission="SPC_VIEW">
           <SPCDashboard />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/materials" element={
+        <ProtectedRoute requiredPermission="INV_VIEW">
+          <MaterialMaster />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/inventory" element={
+        <ProtectedRoute requiredPermission="INV_VIEW">
+          <InventoryManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/bom" element={
+        <ProtectedRoute requiredPermission="BOM_VIEW">
+          <BomManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/mrp" element={
+        <ProtectedRoute requiredPermission="MRP_VIEW">
+          <MRPManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/equipment" element={
+        <ProtectedRoute requiredPermission="EQUIP_VIEW">
+          <EquipmentManager />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/production/shopfloor" element={
+        <ProtectedRoute requiredPermission="SHOPFLOOR_VIEW">
+          <ShopfloorBoard />
         </ProtectedRoute>
       } />
 

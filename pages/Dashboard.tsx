@@ -1,132 +1,94 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
-import { useTheme } from '../components/ThemeContext';
-import { OrderStatus, RepairOrder, LifecycleEvent } from '../types';
-import { analyzeFault } from '../services/geminiService';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, Label 
+import { ProductionDashboardData, FinanceDashboardSummary, DefectRateBatchLock, CapacityInfo } from '../types';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { 
-  AlertTriangle, Clock, Activity, TrendingUp, Users, Wrench, BrainCircuit, RefreshCw, ChevronRight, AlertOctagon, BarChart2
+import {
+  Activity, Cpu, ClipboardCheck, Truck, FileText, BrainCircuit, RefreshCw, ChevronRight,
+  AlertTriangle, AlertOctagon, Clock, CheckCircle, Package, TrendingUp, Zap, Users, ShieldAlert, Lock,
 } from 'lucide-react';
+import { PageHeader, LoadingSpinner, StatCard, StatusBadge, Alert } from '../components/ui';
+import { WORK_ORDER_STATUS_LABELS } from '../constants';
+import { WorkOrderStatus } from '../types';
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1'];
+
+const WO_BADGE_COLORS: Record<WorkOrderStatus, 'blue' | 'yellow' | 'red' | 'green' | 'gray'> = {
+  QUEUED: 'blue', IN_PROGRESS: 'yellow', BLOCKED: 'red', COMPLETED: 'green', CANCELLED: 'gray',
+};
+
+const WS_STATUS_CONFIG = [
+  { label: '空闲', key: 'idle', color: '#22c55e' },
+  { label: '运行中', key: 'running', color: '#f59e0b' },
+  { label: '维护中', key: 'maintenance', color: '#f97316' },
+  { label: '离线', key: 'offline', color: '#ef4444' },
+];
+
+const QUICK_LINKS = [
+  { label: '生产工单', desc: '工单创建与管理', href: '/production/work-orders', color: 'blue' },
+  { label: '工站管理', desc: '工作站状态与维护', href: '/production/workstations', color: 'green' },
+  { label: '排程看板', desc: '自动排程与日历', href: '/production/scheduling', color: 'purple' },
+  { label: '质量画像', desc: '不良率与批次锁定', href: '/production/quality', color: 'red' },
+  { label: 'SPC 控制图', desc: '过程能力分析', href: '/production/spc', color: 'orange' },
+  { label: 'SOP 管理', desc: '标准作业程序', href: '/production/sop', color: 'cyan' },
+  { label: '物流发货', desc: '发货跟踪与结算', href: '/production/shipping', color: 'yellow' },
+  { label: '生产设置', desc: 'MES 参数配置', href: '/production/settings', color: 'gray' },
+];
+
+const LINK_COLORS: Record<string, { border: string; bg: string; text: string }> = {
+  blue:   { border: 'hover:border-blue-300',   bg: 'hover:bg-blue-50',   text: 'text-blue-600' },
+  green:  { border: 'hover:border-green-300',  bg: 'hover:bg-green-50',  text: 'text-green-600' },
+  purple: { border: 'hover:border-purple-300', bg: 'hover:bg-purple-50', text: 'text-purple-600' },
+  red:    { border: 'hover:border-red-300',    bg: 'hover:bg-red-50',    text: 'text-red-600' },
+  orange: { border: 'hover:border-orange-300', bg: 'hover:bg-orange-50', text: 'text-orange-600' },
+  cyan:   { border: 'hover:border-cyan-300',   bg: 'hover:bg-cyan-50',   text: 'text-cyan-600' },
+  yellow: { border: 'hover:border-yellow-300', bg: 'hover:bg-yellow-50', text: 'text-yellow-600' },
+  gray:   { border: 'hover:border-gray-300',   bg: 'hover:bg-gray-50',   text: 'text-gray-600' },
+};
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { themeConfig } = useTheme();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [prodData, setProdData] = useState<ProductionDashboardData | null>(null);
+  const [finData, setFinData] = useState<FinanceDashboardSummary | null>(null);
+  const [capacity, setCapacity] = useState<CapacityInfo[]>([]);
+  const [batchLocks, setBatchLocks] = useState<DefectRateBatchLock[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  
-  const [orders, setOrders] = useState<RepairOrder[]>([]);
-  const [lifecycle, setLifecycle] = useState<LifecycleEvent[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadData = async () => {
+    const load = async () => {
       setLoading(true);
       try {
-        const [ordersRes, lifecycleRes] = await Promise.all([
-          fetch('/api/orders'),
-          fetch('/api/lifecycle')
+        const [prodRes, finRes, capRes, lockRes] = await Promise.all([
+          fetch('/api/production/dashboard'),
+          fetch('/api/finance/dashboard'),
+          fetch('/api/production/scheduling/capacity'),
+          fetch('/api/production/fault-records/batch-lock'),
         ]);
-        if (ordersRes.ok) setOrders(await ordersRes.json());
-        if (lifecycleRes.ok) setLifecycle(await lifecycleRes.json());
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
+        if (prodRes.ok) setProdData(await prodRes.json());
+        if (finRes.ok) setFinData(await finRes.json());
+        if (capRes.ok) setCapacity(await capRes.json());
+        if (lockRes.ok) setBatchLocks(await lockRes.json());
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
     };
-    loadData();
+    load();
   }, []);
 
-  // --- 1. Basic Stats Calculation ---
-  const stats = useMemo(() => {
-    return {
-      total: orders.length,
-      pending: orders.filter(o => o.status === OrderStatus.PENDING).length,
-      checking: orders.filter(o => o.status === OrderStatus.CHECKING).length,
-      closed: orders.filter(o => o.status === OrderStatus.CLOSED).length,
-    };
-  }, [orders]);
-
-  // --- 2. Advanced Analytics Data ---
-  const customerData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    orders.forEach(order => {
-      const name = order.customer_name || 'Unknown';
-      const shortName = name.split('有限公司')[0].split('科技')[0].substring(0, 8); 
-      counts[shortName] = (counts[shortName] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [orders]);
-
-  const componentData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    lifecycle
-      .filter(e => e.event_type === 'REPAIR_SWAP' && e.part_name)
-      .forEach(e => {
-        let part = e.part_name!;
-        part = part.split('(')[0].trim(); 
-        counts[part] = (counts[part] || 0) + 1;
-      });
-
-    if (Object.keys(counts).length === 0) {
-       orders.forEach(o => {
-          if (o.fault_description.includes('内存')) counts['内存'] = (counts['内存'] || 0) + 1;
-          else if (o.fault_description.includes('硬盘') || o.fault_description.includes('HDD')) counts['硬盘'] = (counts['硬盘'] || 0) + 1;
-          else if (o.fault_description.includes('电源') || o.fault_description.includes('PSU')) counts['电源'] = (counts['电源'] || 0) + 1;
-          else if (o.fault_description.includes('主板')) counts['主板'] = (counts['主板'] || 0) + 1;
-       });
-    }
-
-    return Object.entries(counts).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
-  }, [lifecycle, orders]);
-
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1'];
-  
-  const overdueOrders = useMemo(() => {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    return orders.filter(o => {
-      const created = new Date(o.created_at);
-      return o.status !== OrderStatus.CLOSED && o.status !== OrderStatus.SHIPPED && created < thirtyDaysAgo;
-    });
-  }, [orders]);
-
-  const recurringFailures = useMemo(() => {
-    const swaps: Record<string, Record<string, number>> = {}; 
-    lifecycle.filter(e => e.event_type === 'REPAIR_SWAP').forEach(e => {
-        if (!swaps[e.machine_sn]) swaps[e.machine_sn] = {};
-        const partKey = e.part_name || 'Unknown';
-        swaps[e.machine_sn][partKey] = (swaps[e.machine_sn][partKey] || 0) + 1;
-    });
-    const alerts: { machine_sn: string, part: string, count: number }[] = [];
-    Object.entries(swaps).forEach(([sn, parts]) => {
-       Object.entries(parts).forEach(([part, count]) => {
-          if (count >= 2) alerts.push({ machine_sn: sn, part, count });
-       });
-    });
-    return alerts;
-  }, [lifecycle]);
-
   const runAIAnalysis = async () => {
+    if (!prodData) return;
     setAnalyzing(true);
     setAiAnalysis(null);
-    const summary = {
-      totalOrders: stats.total,
-      topCustomers: customerData.map(c => `${c.name}(${c.value})`).join(', '),
-      topFaults: componentData.map(c => `${c.name}(${c.value})`).join(', '),
-      overdueCount: overdueOrders.length,
-      recurringCount: recurringFailures.length,
-      recurringDetails: recurringFailures.map(r => `${r.machine_sn}更换${r.part}${r.count}次`).join('; ')
-    };
-    const prompt = `请根据以下售后数据进行风险分析并给出管理建议(简短3点):\n- 年度总工单: ${summary.totalOrders}\n- 维修客户TOP: ${summary.topCustomers}\n- 故障组件分布: ${summary.topFaults}\n- 超30天滞留工单: ${summary.overdueCount} 单\n- 重复返修(同部件更换2次以上): ${summary.recurringCount} 例 (${summary.recurringDetails})`;
-
+    const { work_orders: wo, quality: q, shipping: s, workstations: ws } = prodData;
+    const prompt = `请根据以下MES生产数据进行风险分析并给出管理建议(简短3点):\n- 工单: 总${wo.total}, 排队${wo.queued}, 进行中${wo.in_progress}, 阻塞${wo.blocked}, 完成率${wo.completion_rate}%\n- 工站: 总${ws.total}, 运行${ws.running}, 维护${ws.maintenance}, 离线${ws.offline}, 平均利用率${ws.avg_utilization}%\n- 质量: 检验${q.total_inspections}, 通过率${q.pass_rate}%, 批次锁定${q.batch_locks}, 故障记录${q.fault_count}\n- 物流: 总${s.total}, 运输中${s.in_transit}, 已签收${s.delivered}, 待发结算信号${s.pending_signal}`;
     try {
-      const result = await analyzeFault(prompt, "System Dashboard Data");
-      setAiAnalysis(result.recommendation || result.summary); 
+      const { analyzeFault } = await import('../services/geminiService');
+      const result = await analyzeFault(prompt, "MES Dashboard Data");
+      setAiAnalysis(result.recommendation || result.summary);
     } catch (e: any) {
       setAiAnalysis(e.message || "AI 服务不可用，请在【系统管理】中配置 API Key。");
     } finally {
@@ -134,159 +96,300 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const EmptyChartState = ({ text }: { text: string }) => (
-    <div className="flex flex-col items-center justify-center h-full text-gray-400 border-2 border-dashed border-gray-100 rounded-lg">
-      <BarChart2 className="w-10 h-10 mb-2 opacity-20" />
-      <span className="text-sm">{text}</span>
-    </div>
-  );
+  const wsChartData = useMemo(() => {
+    if (!prodData) return [];
+    return WS_STATUS_CONFIG.map(c => ({
+      name: c.label,
+      value: (prodData.workstations as any)[c.key] || 0,
+      color: c.color,
+    }));
+  }, [prodData]);
+
+  const formatCurrency = (v: number) => {
+    if (v >= 10000) return `${(v / 10000).toFixed(1)}万`;
+    return v.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY' });
+  };
+
+  if (loading) return <LoadingSpinner />;
+
+  const wo = prodData?.work_orders;
+  const ws = prodData?.workstations;
+  const q = prodData?.quality;
+  const s = prodData?.shipping;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-         <h1 className="text-2xl font-bold text-gray-900">数据仪表盘 & 智能预警中心</h1>
-         <div className="text-sm text-gray-500">
-           {loading ? '加载中...' : `数据统计截止: ${new Date().toLocaleDateString()}`}
-         </div>
-      </div>
-      
-      {/* 1. KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
-           <div className="flex justify-between items-start">
-             <div>
-               <p className="text-sm font-medium text-gray-500">全年维修总量</p>
-               <p className="text-3xl font-bold text-gray-900 mt-1">{stats.total}</p>
-             </div>
-             <div className={`p-2 ${themeConfig.classes.bgLight} rounded-lg ${themeConfig.classes.text}`}><Activity size={20}/></div>
-           </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
-           <div className="flex justify-between items-start">
-             <div>
-               <p className="text-sm font-medium text-gray-500">进行中工单</p>
-               <p className={`text-3xl font-bold ${themeConfig.classes.text} mt-1`}>{stats.checking}</p>
-             </div>
-             <div className={`p-2 ${themeConfig.classes.bgLight} rounded-lg ${themeConfig.classes.text}`}><Wrench size={20}/></div>
-           </div>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={Activity}
+        title="MES 运营总览"
+        subtitle={`数据统计截止: ${new Date().toLocaleDateString('zh-CN')}`}
+      />
 
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between relative overflow-hidden">
-           <div className="flex justify-between items-start z-10">
-             <div>
-               <p className="text-sm font-medium text-gray-500">滞留超30天</p>
-               <p className={`text-3xl font-bold mt-1 ${overdueOrders.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>{overdueOrders.length}</p>
-             </div>
-             <div className="p-2 bg-red-50 rounded-lg text-red-600"><Clock size={20}/></div>
-           </div>
-           {overdueOrders.length > 0 && <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500"></div>}
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between relative overflow-hidden">
-           <div className="flex justify-between items-start z-10">
-             <div>
-               <p className="text-sm font-medium text-gray-500">重复返修预警</p>
-               <p className={`text-3xl font-bold mt-1 ${recurringFailures.length > 0 ? 'text-orange-600' : 'text-gray-900'}`}>{recurringFailures.length}</p>
-             </div>
-             <div className="p-2 bg-orange-50 rounded-lg text-orange-600"><AlertOctagon size={20}/></div>
-           </div>
-           {recurringFailures.length > 0 && <div className="absolute bottom-0 left-0 w-full h-1 bg-orange-500"></div>}
-        </div>
+      {/* Row 1: Core KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard label="生产工单" value={wo?.total || 0} icon={ClipboardCheck} color="blue" />
+        <StatCard label="排队中" value={wo?.queued || 0} icon={Clock} color="yellow" />
+        <StatCard label="进行中" value={wo?.in_progress || 0} icon={Zap} color="orange" />
+        <StatCard label="已完成" value={wo?.completed || 0} icon={CheckCircle} color="green" />
+        <StatCard label="质检通过率" value={`${q?.pass_rate || 0}%`} icon={ShieldAlert} color={q && q.pass_rate >= 90 ? 'green' : 'red'} />
+        <StatCard label="运输中" value={s?.in_transit || 0} icon={Truck} color="purple" />
       </div>
 
-      {/* 2. Charts Section */}
+      {/* Row 2: Workstation Status + Finance Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-blue-500" /> 工站实时状态
+            </h3>
+            <span className="text-xs text-gray-500">平均利用率 {ws?.avg_utilization || 0}%</span>
+          </div>
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            {WS_STATUS_CONFIG.map(c => (
+              <div key={c.key} className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-bold text-gray-900">{(ws as any)?.[c.key] || 0}</p>
+                <p className="text-xs text-gray-500 mt-1">{c.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex">
+            {WS_STATUS_CONFIG.map(c => {
+              const val = (ws as any)?.[c.key] || 0;
+              const total = ws?.total || 1;
+              const pct = (val / total) * 100;
+              return pct > 0 ? (
+                <div key={c.key} className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: c.color }} title={`${c.label}: ${val}`} />
+              ) : null;
+            })}
+          </div>
+          <div className="flex justify-between mt-2">
+            {WS_STATUS_CONFIG.map(c => (
+              <span key={c.key} className="flex items-center gap-1 text-[10px] text-gray-500">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} /> {c.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-4">
+            <TrendingUp className="w-4 h-4 text-purple-500" /> 财务概览
+          </h3>
+          {finData ? (
+            <div className="space-y-3">
+              {[
+                { label: '活跃项目', value: finData.active_projects, color: 'text-blue-600' },
+                { label: '总收入', value: formatCurrency(finData.total_revenue), color: 'text-green-600' },
+                { label: '总利润', value: formatCurrency(finData.total_profit), color: 'text-purple-600' },
+                { label: '待收款', value: formatCurrency(finData.total_outstanding), color: 'text-yellow-600' },
+                { label: '逾期笔数', value: finData.overdue_count, color: finData.overdue_count > 0 ? 'text-red-600' : 'text-gray-600' },
+              ].map(item => (
+                <div key={item.label} className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">{item.label}</span>
+                  <span className={`text-sm font-bold ${item.color}`}>{item.value}</span>
+                </div>
+              ))}
+              {finData.overdue_count > 0 && (
+                <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-100">
+                  <p className="text-[10px] text-red-600 font-medium">逾期金额: {formatCurrency(finData.overdue_amount)}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">暂无财务数据</p>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3: Production Board + Quality Board */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-96 flex flex-col">
-           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Activity className="w-5 h-5 mr-2 text-gray-500"/> 全年故障件分布占比</h3>
-           <div className="w-full h-full relative">
-             {componentData.length > 0 ? (
-               <ResponsiveContainer width="100%" height="100%">
-                 <PieChart>
-                   <Pie data={componentData} cx="50%" cy="50%" innerRadius={80} outerRadius={100} paddingAngle={2} dataKey="value" onClick={(d) => navigate(`/orders?search=${encodeURIComponent(d.name)}`)} cursor="pointer">
-                     {componentData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} strokeWidth={0} />)}
-                     <Label value={stats.total} position="center" className="text-4xl font-bold fill-gray-800" dy={-10} />
-                     <Label value="总工单" position="center" className="text-sm fill-gray-500" dy={15} />
-                   </Pie>
-                   <RechartsTooltip />
-                   <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                 </PieChart>
-               </ResponsiveContainer>
-             ) : <EmptyChartState text="暂无故障分布数据" />}
-           </div>
+        {/* Production Board */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-blue-500" /> 最近工单
+            </h3>
+            <Link to="/production/work-orders" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+              查看全部 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          {prodData?.recent_work_orders && prodData.recent_work_orders.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {prodData.recent_work_orders.map(wo => (
+                <div key={wo.id} className="px-5 py-3 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => navigate(`/production/work-orders`)}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{wo.machine_sn}</p>
+                      <p className="text-[10px] text-gray-500 font-mono">{wo.id} {wo.routing_name ? `· ${wo.routing_name}` : ''}</p>
+                    </div>
+                    <StatusBadge label={WORK_ORDER_STATUS_LABELS[wo.status]} color={WO_BADGE_COLORS[wo.status]} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-5 py-8 text-center text-gray-400 text-sm">暂无工单数据</div>
+          )}
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-96 flex flex-col">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Users className="w-5 h-5 mr-2 text-gray-500"/> 客户维修量占比</h3>
-          <div className="w-full h-full">
-            {customerData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={customerData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" onClick={(d) => navigate(`/orders?search=${encodeURIComponent(d.name)}`)} cursor="pointer">
-                     {customerData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} strokeWidth={0} />)}
-                  </Pie>
-                  <RechartsTooltip />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : <EmptyChartState text="暂无客户数据" />}
+        {/* Quality Board */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-500" /> 质量看板
+            </h3>
+            <Link to="/production/quality" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+              详细报告 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-lg font-bold text-gray-900">{q?.total_inspections || 0}</p>
+                <p className="text-[10px] text-gray-500">总检验</p>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <p className="text-lg font-bold text-green-600">{q?.pass_count || 0}</p>
+                <p className="text-[10px] text-gray-500">通过</p>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <p className="text-lg font-bold text-red-600">{q?.fail_count || 0}</p>
+                <p className="text-[10px] text-gray-500">不通过</p>
+              </div>
+            </div>
+
+            {/* Pass rate bar */}
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-500">通过率</span>
+                <span className={`font-bold ${q && q.pass_rate >= 90 ? 'text-green-600' : 'text-red-600'}`}>{q?.pass_rate || 0}%</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${q && q.pass_rate >= 90 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${q?.pass_rate || 0}%` }} />
+              </div>
+            </div>
+
+            {/* Batch locks */}
+            {batchLocks.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Lock className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-xs font-bold text-red-800">{batchLocks.length} 个批次被锁定</span>
+                </div>
+                {batchLocks.slice(0, 3).map((lock, i) => (
+                  <p key={i} className="text-[10px] text-red-600 truncate">{lock.batch_no} · {lock.part_name} · {lock.supplier}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Recent faults */}
+            {prodData?.recent_faults && prodData.recent_faults.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-700 mb-2">最近故障</p>
+                <div className="space-y-1">
+                  {prodData.recent_faults.slice(0, 3).map(f => (
+                    <div key={f.id} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-600 truncate">{f.machine_sn} · {f.part_name}</span>
+                      <span className="text-gray-400 shrink-0 ml-2">{f.fault_category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 3. Intelligent Warning Center */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-         <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white flex justify-between items-center">
-            <h3 className="text-lg font-bold text-gray-900 flex items-center">
-               <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> 智能预警中心
+      {/* Row 4: Shipping + AI Alerts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Shipping Overview */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <Truck className="w-4 h-4 text-purple-500" /> 物流发货
             </h3>
-            <button onClick={runAIAnalysis} disabled={analyzing} className={`flex items-center px-4 py-2 text-white text-sm rounded-lg transition shadow-sm disabled:opacity-70 ${themeConfig.classes.bg} ${themeConfig.classes.bgHover}`}>
-               {analyzing ? <RefreshCw className="w-4 h-4 mr-2 animate-spin"/> : <BrainCircuit className="w-4 h-4 mr-2"/>} AI 风险分析
+            <Link to="/production/shipping" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+              查看全部 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-4 gap-3 mb-4">
+              {[
+                { label: '总发货', value: s?.total || 0, color: 'bg-blue-50 text-blue-600' },
+                { label: '运输中', value: s?.in_transit || 0, color: 'bg-yellow-50 text-yellow-600' },
+                { label: '已签收', value: s?.delivered || 0, color: 'bg-green-50 text-green-600' },
+                { label: '待发信号', value: s?.pending_signal || 0, color: 'bg-red-50 text-red-600' },
+              ].map(item => (
+                <div key={item.label} className={`text-center p-3 rounded-lg ${item.color}`}>
+                  <p className="text-xl font-bold">{item.value}</p>
+                  <p className="text-[10px] mt-1">{item.label}</p>
+                </div>
+              ))}
+            </div>
+            {s && s.pending_signal > 0 && (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-xs text-yellow-800 font-medium">{s.pending_signal} 条发货记录待发送结算信号</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* AI Analysis */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4 text-indigo-500" /> AI 风险分析
+            </h3>
+            <button onClick={runAIAnalysis} disabled={analyzing || !prodData}
+              className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+              {analyzing ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <BrainCircuit className="w-3 h-3 mr-1" />}
+              {analyzing ? '分析中...' : 'AI 分析'}
             </button>
-         </div>
-         
-         {aiAnalysis && (
-            <div className={`px-6 py-4 ${themeConfig.classes.bgLight} border-b ${themeConfig.classes.border} animate-in slide-in-from-top-2`}>
-               <h4 className={`text-xs font-bold ${themeConfig.classes.text} uppercase mb-2 flex items-center`}><BrainCircuit className="w-3 h-3 mr-1"/> AI 分析报告</h4>
-               <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
-            </div>
-         )}
+          </div>
+          <div className="p-5">
+            {aiAnalysis ? (
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">{aiAnalysis}</pre>
+            ) : (
+              <div className="text-center py-6 text-gray-400 text-sm">
+                <BrainCircuit className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                <p>点击「AI 分析」获取基于当前生产数据的风险评估</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
-         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
-            <div className="p-6">
-               <h4 className="text-sm font-bold text-gray-700 uppercase mb-4 flex items-center"><Clock className="w-4 h-4 mr-2 text-red-500"/> 严重滞留工单 (&gt;30天)</h4>
-               {overdueOrders.length > 0 ? (
-                  <ul className="space-y-3">
-                     {overdueOrders.map(o => (
-                        <li key={o.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 hover:shadow-md transition">
-                           <div>
-                              <div className="text-sm font-bold text-gray-900">{o.order_number}</div>
-                              <div className="text-xs text-red-600 mt-1">SN: {o.machine_sn} | {Math.floor((new Date().getTime() - new Date(o.created_at).getTime()) / (1000 * 3600 * 24))} 天未关闭</div>
-                           </div>
-                           <Link to={`/orders/${o.id}`} className="p-2 text-gray-400 hover:text-blue-600"><ChevronRight size={18} /></Link>
-                        </li>
-                     ))}
-                  </ul>
-               ) : <div className="text-center py-8 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">暂无滞留工单</div>}
-            </div>
+      {/* Row 5: Workstation Utilization Chart */}
+      {capacity.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-blue-500" /> 工站负载分布
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={capacity.map(c => ({ name: c.workstation_name, 利用率: c.utilization_pct }))}>
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+              <RechartsTooltip formatter={(v: number) => [`${v}%`, '利用率']} />
+              <Bar dataKey="利用率" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
-            <div className="p-6">
-               <h4 className="text-sm font-bold text-gray-700 uppercase mb-4 flex items-center"><AlertOctagon className="w-4 h-4 mr-2 text-orange-500"/> 重复故障预警 (同机同件 ≥2次)</h4>
-               {recurringFailures.length > 0 ? (
-                  <ul className="space-y-3">
-                     {recurringFailures.map((item, idx) => (
-                        <li key={idx} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-100 hover:shadow-md transition">
-                           <div>
-                              <div className="text-sm font-bold text-gray-900">{item.machine_sn}</div>
-                              <div className="text-xs text-orange-700 mt-1 font-medium">{item.part} 更换 <span className="text-lg font-bold">{item.count}</span> 次</div>
-                           </div>
-                           <Link to={`/production/list`} className="px-3 py-1 bg-white border border-orange-200 text-orange-600 text-xs rounded hover:bg-orange-100">溯源</Link>
-                        </li>
-                     ))}
-                  </ul>
-               ) : <div className="text-center py-8 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">暂无重复故障</div>}
-            </div>
-         </div>
+      {/* Row 6: Quick Links */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-gray-800 mb-4">快捷入口</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {QUICK_LINKS.map(link => {
+            const lc = LINK_COLORS[link.color] || LINK_COLORS.gray;
+            return (
+              <Link key={link.href} to={link.href} className={`block p-4 rounded-lg border border-gray-200 ${lc.border} ${lc.bg} transition-colors`}>
+                <p className={`text-sm font-bold ${lc.text}`}>{link.label}</p>
+                <p className="text-[10px] text-gray-500 mt-1">{link.desc}</p>
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

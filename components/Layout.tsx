@@ -8,7 +8,8 @@ import {
   LayoutDashboard, Wrench, ScanLine, LogOut, Menu, Server, Search,
   Hammer, GitMerge, ChevronDown, ChevronRight, Settings, Layers, FileCode,
   DollarSign, ShoppingCart, FileSpreadsheet, CreditCard, BarChart3, Truck, ClipboardList,
-  QrCode, Sliders, BookOpen, Activity, Cog, Route, ListChecks, LineChart, ClipboardCheck, BarChart2
+  QrCode, Sliders, BookOpen, Activity, Cog, Route, ListChecks, LineChart, ClipboardCheck, BarChart2,
+  Boxes, Warehouse, GitBranch, Calculator, MonitorUp
 } from 'lucide-react';
 import { ROLE_LABELS } from '../constants';
 
@@ -58,12 +59,24 @@ const STATIC_MENU_GROUPS = [
     id: 'mes',
     title: 'MES 生产执行',
     items: [
+      { to: '/production/shopfloor', icon: MonitorUp, label: '车间看板', permission: 'SHOPFLOOR_VIEW' },
       { to: '/production/workstations', icon: Cog, label: '工作站管理', permission: 'WS_VIEW' },
       { to: '/production/routings', icon: Route, label: '工艺路线', permission: 'ROUTING_VIEW' },
       { to: '/production/work-orders', icon: ListChecks, label: '生产工单', permission: 'WO_VIEW' },
       { to: '/production/scheduling', icon: BarChart2, label: '生产排程', permission: 'WO_SCHEDULE' },
       { to: '/production/inspections', icon: ClipboardCheck, label: '检验计划', permission: 'INSP_VIEW' },
       { to: '/production/spc', icon: LineChart, label: 'SPC控制图', permission: 'SPC_VIEW' },
+    ]
+  },
+  {
+    id: 'erp',
+    title: 'ERP 供应链',
+    items: [
+      { to: '/production/materials', icon: Boxes, label: '物料主数据', permission: 'INV_VIEW' },
+      { to: '/production/bom', icon: GitBranch, label: 'BOM管理', permission: 'BOM_VIEW' },
+      { to: '/production/inventory', icon: Warehouse, label: '库存仓储', permission: 'INV_VIEW' },
+      { to: '/production/mrp', icon: Calculator, label: 'MRP需求', permission: 'MRP_VIEW' },
+      { to: '/production/equipment', icon: Activity, label: '设备/OEE', permission: 'EQUIP_VIEW' },
     ]
   },
   {
@@ -120,6 +133,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     'finance': true,
     'production': true,
     'mes': true,
+    'erp': true,
     'workflow': true,
     'system': true
   });
@@ -193,9 +207,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const NavItem = ({ to, icon: Icon, label, permission, permissions }: any) => {
     const hasAccess = permission 
-      ? user.permissions?.includes(permission) 
+      ? user.role === 'ADMIN' || user.permissions?.includes(permission) 
       : permissions 
-        ? permissions.some((p: any) => user.permissions?.includes(p))
+        ? user.role === 'ADMIN' || permissions.some((p: any) => user.permissions?.includes(p))
         : false;
 
     if (!hasAccess) return null;

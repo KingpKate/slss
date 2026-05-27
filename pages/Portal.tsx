@@ -10,7 +10,7 @@ const Portal: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'timeline' | 'tests' | 'logistics'>('timeline');
 
-  const handleSearch = async (e: React.FormFormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if(!sn.trim()) return;
 

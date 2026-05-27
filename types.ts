@@ -60,6 +60,15 @@ export type Permission =
   | 'INSP_VIEW'
   | 'INSP_EXECUTE'
   | 'SPC_VIEW'
+  | 'INV_VIEW'
+  | 'INV_MANAGE'
+  | 'BOM_VIEW'
+  | 'BOM_MANAGE'
+  | 'MRP_VIEW'
+  | 'MRP_RUN'
+  | 'EQUIP_VIEW'
+  | 'EQUIP_MANAGE'
+  | 'SHOPFLOOR_VIEW'
 
 export enum OrderStatus {
   PENDING = 'PENDING',
@@ -628,6 +637,30 @@ export interface DeliveryCountdownItem {
   amount: number;
 }
 
+// 2.20 生产仪表盘汇总
+export interface ProductionDashboardData {
+  work_orders: {
+    total: number; queued: number; in_progress: number;
+    blocked: number; completed: number; cancelled: number;
+    completion_rate: number;
+  };
+  workstations: {
+    total: number; idle: number; running: number;
+    maintenance: number; offline: number; avg_utilization: number;
+  };
+  quality: {
+    total_inspections: number; pass_count: number; fail_count: number;
+    pass_rate: number; batch_locks: number; fault_count: number;
+  };
+  shipping: {
+    total: number; in_transit: number; delivered: number;
+    pending_signal: number;
+  };
+  sop: { total: number; categories: number };
+  recent_work_orders: WorkOrder[];
+  recent_faults: FaultRecord[];
+}
+
 // 2.19 库龄预警
 export interface InventoryAgingAlert {
   purchase_order_id: string;
@@ -759,6 +792,13 @@ export interface FaultRecord {
   created_at: string;
 }
 
+export interface DefectRateBatchLock {
+  batch_no: string;
+  part_name: string;
+  supplier: string;
+  fault_count: number;
+}
+
 // 3.9 配件不良率热力图数据
 export interface DefectRateHeatmap {
   part_name: string;
@@ -863,12 +903,13 @@ export interface MessagePayload {
 // =============================================================================
 
 // --- Workstation ---
-export enum WorkstationStatus {
-  IDLE = 'IDLE',
-  RUNNING = 'RUNNING',
-  MAINTENANCE = 'MAINTENANCE',
-  OFFLINE = 'OFFLINE',
-}
+export const WorkstationStatus = {
+  IDLE: 'IDLE',
+  RUNNING: 'RUNNING',
+  MAINTENANCE: 'MAINTENANCE',
+  OFFLINE: 'OFFLINE',
+} as const;
+export type WorkstationStatus = typeof WorkstationStatus[keyof typeof WorkstationStatus];
 
 export interface Workstation {
   id: number;
@@ -926,13 +967,14 @@ export interface RoutingStep {
 }
 
 // --- Work Order ---
-export enum WorkOrderStatus {
-  QUEUED = 'QUEUED',
-  IN_PROGRESS = 'IN_PROGRESS',
-  BLOCKED = 'BLOCKED',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
+export const WorkOrderStatus = {
+  QUEUED: 'QUEUED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  BLOCKED: 'BLOCKED',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type WorkOrderStatus = typeof WorkOrderStatus[keyof typeof WorkOrderStatus];
 
 export interface WorkOrder {
   id: string;
@@ -940,6 +982,8 @@ export interface WorkOrder {
   contract_no: string;
   quotation_id: string;
   routing_id: string;
+  routing_name?: string;
+  model?: string;
   current_step_seq: number;
   status: WorkOrderStatus;
   priority: number;
@@ -1050,4 +1094,155 @@ export interface CapacityInfo {
   current_tasks: number;
   max_tasks: number;
   utilization_pct: number;
+}
+
+// =============================================================================
+// PART 6: V4.0 MES + ERP Extensions
+// =============================================================================
+
+export type MaterialCategory = 'RAW' | 'COMPONENT' | 'SEMI_FINISHED' | 'FINISHED' | 'CONSUMABLE' | 'SERVICE';
+export type InventoryTxnType = 'OPENING' | 'PURCHASE_IN' | 'PRODUCTION_ISSUE' | 'PRODUCTION_RETURN' | 'TRANSFER' | 'ADJUSTMENT' | 'SHIPMENT_OUT';
+export type MrpPlanStatus = 'DRAFT' | 'RELEASED' | 'CLOSED';
+export type EquipmentStatus = 'AVAILABLE' | 'RUNNING' | 'DOWN' | 'MAINTENANCE' | 'SCRAPPED';
+
+export interface MaterialMaster {
+  id: string;
+  code: string;
+  name: string;
+  category: MaterialCategory;
+  specification: string;
+  brand?: string;
+  unit: string;
+  default_supplier?: string;
+  safety_stock: number;
+  lead_time_days: number;
+  standard_cost: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BomHeader {
+  id: string;
+  product_code: string;
+  product_name: string;
+  model: string;
+  version: string;
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  effective_from?: string;
+  effective_to?: string;
+  notes?: string;
+  items?: BomLine[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BomLine {
+  id: number;
+  bom_id: string;
+  material_id: string;
+  material_code?: string;
+  material_name?: string;
+  quantity: number;
+  loss_rate: number;
+  station?: string;
+  remarks?: string;
+}
+
+export interface Warehouse {
+  id: number;
+  code: string;
+  name: string;
+  location?: string;
+  manager?: string;
+  is_active: boolean;
+}
+
+export interface InventoryBalance {
+  id: number;
+  material_id: string;
+  material_code?: string;
+  material_name?: string;
+  warehouse_id: number;
+  warehouse_code?: string;
+  warehouse_name?: string;
+  location_code: string;
+  batch_no: string;
+  qty_on_hand: number;
+  qty_reserved: number;
+  qty_available: number;
+  updated_at?: string;
+}
+
+export interface InventoryTransaction {
+  id: number;
+  txn_type: InventoryTxnType;
+  material_id: string;
+  material_code?: string;
+  material_name?: string;
+  warehouse_id: number;
+  location_code: string;
+  batch_no: string;
+  quantity: number;
+  unit_cost: number;
+  source_doc_type?: string;
+  source_doc_no?: string;
+  operator_name?: string;
+  remarks?: string;
+  created_at: string;
+}
+
+export interface MrpPlan {
+  id: string;
+  plan_name: string;
+  demand_source: string;
+  product_code: string;
+  product_name: string;
+  demand_qty: number;
+  due_date?: string;
+  status: MrpPlanStatus;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MrpResult {
+  id: number;
+  plan_id: string;
+  material_id: string;
+  material_code?: string;
+  material_name?: string;
+  gross_requirement: number;
+  available_qty: number;
+  net_requirement: number;
+  suggested_order_qty: number;
+  suggested_order_date?: string;
+}
+
+export interface EquipmentAsset {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  workstation_id?: number | null;
+  workstation_name?: string;
+  status: EquipmentStatus;
+  purchase_date?: string;
+  supplier?: string;
+  serial_no?: string;
+  next_maintenance_date?: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OeeSummary {
+  planned_minutes: number;
+  runtime_minutes: number;
+  downtime_minutes: number;
+  good_qty: number;
+  defect_qty: number;
+  availability: number;
+  performance: number;
+  quality: number;
+  oee: number;
 }

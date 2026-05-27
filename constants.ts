@@ -85,6 +85,16 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'INSP_VIEW': '查看检验',
   'INSP_EXECUTE': '执行检验',
   'SPC_VIEW': '查看SPC',
+  // V4.0 MES + ERP Extensions
+  'INV_VIEW': '查看库存',
+  'INV_MANAGE': '管理库存',
+  'BOM_VIEW': '查看BOM',
+  'BOM_MANAGE': '管理BOM',
+  'MRP_VIEW': '查看MRP',
+  'MRP_RUN': '运行MRP',
+  'EQUIP_VIEW': '查看设备',
+  'EQUIP_MANAGE': '管理设备',
+  'SHOPFLOOR_VIEW': '车间执行看板',
 };
 
 // V2.0 报价单状态标签
@@ -233,6 +243,33 @@ export const V3_MESSAGE_EVENT_LABELS: Record<string, string> = {
   WORK_ORDER_COMPLETED: '工单完成',
   INSPECTION_FAILED: '检验不合格',
   SPC_OUT_OF_CONTROL: 'SPC失控',
+};
+
+export const MATERIAL_CATEGORY_LABELS: Record<string, string> = {
+  RAW: '原材料',
+  COMPONENT: '组件',
+  SEMI_FINISHED: '半成品',
+  FINISHED: '成品',
+  CONSUMABLE: '耗材',
+  SERVICE: '服务项',
+};
+
+export const INVENTORY_TXN_TYPE_LABELS: Record<string, string> = {
+  OPENING: '期初入库',
+  PURCHASE_IN: '采购入库',
+  PRODUCTION_ISSUE: '生产领料',
+  PRODUCTION_RETURN: '生产退料',
+  TRANSFER: '仓库调拨',
+  ADJUSTMENT: '库存调整',
+  SHIPMENT_OUT: '销售出库',
+};
+
+export const EQUIPMENT_STATUS_LABELS: Record<string, string> = {
+  AVAILABLE: '可用',
+  RUNNING: '运行中',
+  DOWN: '停机',
+  MAINTENANCE: '维护中',
+  SCRAPPED: '已报废',
 };
 
 // Default production operators (sorted by pinyin)
