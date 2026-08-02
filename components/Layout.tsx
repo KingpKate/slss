@@ -83,12 +83,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </nav>
       <div className="slss-account-panel"><div className="slss-account-row"><div className="slss-user-avatar">{user.username.slice(0, 1).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{user.username}</p><p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role] || user.role}</p></div></div><button onClick={logout} className="slss-logout"><LogOut size={16} />退出登录</button></div>
     </aside>
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="slss-topbar sticky top-0 z-10 flex min-h-[76px] items-center justify-between gap-4 px-4 lg:px-8">
         <div className="flex min-w-0 items-center gap-3"><button aria-label="打开侧栏" className="slss-menu-button lg:hidden" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="min-w-0"><p className="slss-breadcrumb">WORKSPACE <span>/</span> {activeItem?.group || 'OPERATIONS'}</p><p className="slss-page-title truncate">{activeItem?.label || '系统工作台'}</p></div></div>
         <div className="slss-topbar-actions"><div className={`slss-api-pill ${systemOnline ? 'is-online' : 'is-offline'}`}><Activity size={14} />{systemOnline ? 'API 已连接' : 'API 连接异常'}</div>{companyLogo && <div className="slss-top-logo"><img src={companyLogo} alt="公司 LOGO" /></div>}<ShieldCheck size={19} className="text-slate-400" aria-hidden="true" /></div>
       </header>
-      <main className="slss-page flex-1 overflow-y-auto p-4 lg:p-7">{children}</main>
+      <main className="slss-page min-h-0 flex-1 p-4 lg:p-7">{children}</main>
     </div>
   </div>;
 };
