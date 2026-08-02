@@ -81,23 +81,18 @@ const normalizePermissionList = (values: unknown): Permission[] =>
 // --- Sub-components for better organization ---
 
 const StatusIndicator = ({ status, text }: { status: 'good' | 'warning' | 'error' | 'neutral', text: string }) => {
-  const colors = {
-    good: 'bg-green-500',
-    warning: 'bg-yellow-500',
-    error: 'bg-red-500',
-    neutral: 'bg-gray-400'
-  };
+  const colors = { good: 'var(--status-good)', warning: 'var(--status-warning)', error: 'var(--status-error)', neutral: 'var(--status-neutral)' };
   return (
     <div className="flex items-center space-x-2">
-      <div className={`w-2.5 h-2.5 rounded-full ${colors[status]} animate-pulse`} />
-      <span className="text-sm font-medium text-gray-700">{text}</span>
+      <div className="h-2.5 w-2.5 rounded-full animate-pulse" style={{ backgroundColor: colors[status] }} />
+      <span className="text-sm font-medium text-slate-700">{text}</span>
     </div>
   );
 };
 
 const AdminPanel: React.FC = () => {
   // -- Navigation State --
-  const [activeTab, setActiveTab] = useState<'status' | 'database' | 'ai' | 'users' | 'general'>('status');
+  const [activeTab, setActiveTab] = useState<'overview' | 'status' | 'database' | 'ai' | 'users' | 'general'>('overview');
   const { theme, setTheme, themeConfig } = useTheme();
 
   // -- Config States --
@@ -128,6 +123,8 @@ const AdminPanel: React.FC = () => {
   const [userDialog,setUserDialog]=useState<{mode:'create'|'edit'; user?:User}|null>(null);
   const [credentialForm,setCredentialForm]=useState({username:'',password:'',role:'TECHNICIAN'});
   const [adminError,setAdminError]=useState('');
+  const [adminOverview, setAdminOverview] = useState<any | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const permissionMatrixRef = useRef<HTMLDivElement>(null);
   const permissionDragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
@@ -296,6 +293,17 @@ const AdminPanel: React.FC = () => {
     api.companyLogo().then((value: any) => setLogoValue(value?.value || '')).catch((e: any) => setAdminError(e?.message || '公司 Logo 加载失败'));
     api.aiChannels().then(setAiChannels).catch((e: any) => setAdminError(e?.message || 'AI 渠道列表加载失败'));
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'overview') return;
+    let disposed = false;
+    setOverviewLoading(true);
+    api.adminOverview()
+      .then(value => { if (!disposed) setAdminOverview(value); })
+      .catch((e: any) => { if (!disposed) setAdminError(e?.message || '系统管理概览加载失败'); })
+      .finally(() => { if (!disposed) setOverviewLoading(false); });
+    return () => { disposed = true; };
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'status' && activeTab !== 'database') return;
@@ -540,6 +548,7 @@ const AdminPanel: React.FC = () => {
         <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
           <h2 className="text-xs font-bold text-gray-400 uppercase mb-4 px-4 tracking-wider">系统设置</h2>
           <nav>
+            <SidebarItem id="overview" icon={Activity} label="管理概览" />
             <SidebarItem id="status" icon={Activity} label="系统监控概览" />
             <SidebarItem id="database" icon={Database} label="数据库与缓存" />
             <SidebarItem id="ai" icon={Network} label="AI 智能网关" />
@@ -556,6 +565,7 @@ const AdminPanel: React.FC = () => {
           {/* Header */}
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50 flex justify-between items-center">
              <h1 className="text-xl font-bold text-gray-800 flex items-center">
+               {activeTab === 'overview' && <><Activity className={`mr-2 ${themeConfig.classes.text}`} /> 管理概览</>}
                {activeTab === 'status' && <><Activity className={`mr-2 ${themeConfig.classes.text}`} /> 系统运行状态</>}
                {activeTab === 'database' && <><Database className={`mr-2 ${themeConfig.classes.text}`} /> 数据源连接配置</>}
                {activeTab === 'ai' && <><Network className="mr-2 text-purple-600" /> AI 模型服务渠道</>}
@@ -575,6 +585,38 @@ const AdminPanel: React.FC = () => {
           </div>
 
           <div className="p-6">
+
+            {adminError && (
+              <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div><div className="font-semibold">管理接口请求失败</div><div className="mt-1 break-words">{adminError}</div></div>
+                <button className="ml-auto text-red-700" onClick={() => setAdminError('')} aria-label="关闭错误提示"><X className="h-4 w-4" /></button>
+              </div>
+            )}
+
+            {activeTab === 'overview' && (
+              <div className="space-y-6" data-testid="admin-overview">
+                {overviewLoading && <div className="rounded-xl border border-[var(--theme-primary-border)] bg-[var(--theme-primary-soft)] px-4 py-3 text-sm" style={{ color: 'var(--theme-primary-strong)' }}>正在读取系统管理概览…</div>}
+                {!overviewLoading && !adminOverview && <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">暂无概览数据，请确认当前账号具有系统管理权限。</div>}
+                {adminOverview && <>
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-6 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Administration Control Center</p><h2 className="mt-2 text-2xl font-semibold text-slate-900">{adminOverview.application?.appName}</h2><p className="mt-1 text-sm text-slate-500">版本 {adminOverview.application?.version} · 主题 {adminOverview.application?.theme} · {adminOverview.application?.maintenanceMode ? '维护模式' : '正常运行'}</p></div>
+                      <span className="rounded-full border border-[var(--theme-primary-border)] bg-[var(--theme-primary-soft)] px-3 py-1 text-xs font-semibold" style={{ color: 'var(--theme-primary-strong)' }}>配置中心</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                    {[['用户', adminOverview.counts?.users], ['权限组', adminOverview.counts?.permissionGroups], ['租户', adminOverview.counts?.tenants], ['AI 渠道', adminOverview.counts?.aiChannels], ['启用渠道', adminOverview.counts?.enabledAiChannels]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-semibold text-slate-900">{value ?? '—'}</p></div>)}
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <button onClick={() => setActiveTab('database')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">连接与依赖</p><p className="mt-1 text-sm text-slate-500">查看 MySQL、Redis 与运行时健康状态</p></button>
+                    <button onClick={() => setActiveTab('users')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">身份与权限</p><p className="mt-1 text-sm text-slate-500">管理用户、权限组、租户和授权审计</p></button>
+                    <button onClick={() => setActiveTab('ai')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">AI 智能网关</p><p className="mt-1 text-sm text-slate-500">配置渠道、模型发现与连通性测试</p></button>
+                    <button onClick={() => setActiveTab('general')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">品牌与系统参数</p><p className="mt-1 text-sm text-slate-500">统一维护系统名称、主题外观与 Logo</p></button>
+                  </div>
+                </>}
+              </div>
+            )}
             
             {/* --- TAB: SYSTEM STATUS --- */}
             {activeTab === 'status' && (

@@ -19,6 +19,10 @@
   --theme-primary-border: #bfdbfe;
   --theme-primary-rgb: 37, 99, 235;
   --theme-primary-strong-rgb: 29, 78, 216;
+  --status-good: #059669;
+  --status-warning: #d97706;
+  --status-error: #dc2626;
+  --status-neutral: #94a3b8;
   font-family: "Fira Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--color-foreground);
   background: var(--color-background);

@@ -88,6 +88,12 @@ function normalizeAsset(raw: any) {
 }
 
 export const api = {
+  adminOverview: () => request<{
+    generatedAt: string;
+    application: { version: string; appName: string; theme: string; maintenanceMode: boolean };
+    counts: { users: number; permissionGroups: number; tenants: number; aiChannels: number; enabledAiChannels: number };
+    configuration: { logRetentionDays: string; brandingConfigured: boolean };
+  }>('/admin/overview'),
   login: (username: string, password: string) =>
     request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   refreshSession: () => request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/refresh', { method: 'POST' }),
