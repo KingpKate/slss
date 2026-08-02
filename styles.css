@@ -22,6 +22,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; }
+html, body { overflow-x: hidden; }
 body { margin: 0; background: var(--color-background); color: var(--color-foreground); }
 button, a, input, select, textarea { font: inherit; }
 button, a { cursor: pointer; }
@@ -63,8 +64,28 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .dashboard-large:fullscreen { overflow-y: auto; background: var(--color-background); }
   .dashboard-root button:focus-visible { outline: 3px solid rgb(var(--slss-brand-rgb) / .35); outline-offset: 2px; }
   .slss-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 0 4px rgba(22,163,74,.13); }
+  .slss-page > *, .dashboard-root > *, .slss-page section, .slss-page article { min-width: 0; max-width: 100%; }
+  .slss-page .overflow-x-auto, .dashboard-root .overflow-x-auto { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-color: #94a3b8 #e2e8f0; scrollbar-width: thin; }
+  .slss-page table, .dashboard-root table { max-width: none; }
+  .slss-page img, .dashboard-root img { max-width: 100%; height: auto; }
+  .slss-page input, .slss-page select, .slss-page textarea { max-width: 100%; }
+  .slss-page [role="dialog"], .dashboard-root [role="dialog"] { max-width: 100vw; }
+  .slss-page .fixed.inset-0 > div, .dashboard-root .fixed.inset-0 > div { min-width: 0; max-width: calc(100vw - 2rem); }
   @media (max-width: 1024px) { .dashboard-large .dashboard-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-  @media (max-width: 640px) { .dashboard-large-grid { grid-template-columns: 1fr; } .dashboard-large .dashboard-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) {
+    .slss-page { padding: 12px !important; }
+    .slss-page .fixed.inset-0, .dashboard-root .fixed.inset-0 { padding: 12px !important; }
+    .slss-page .fixed.inset-0 > div, .dashboard-root .fixed.inset-0 > div { max-height: calc(100dvh - 24px) !important; }
+    .slss-page .text-4xl { font-size: 1.75rem; line-height: 1.15; }
+    .slss-page .text-3xl { font-size: 1.55rem; line-height: 1.2; }
+    .slss-page .text-2xl { font-size: 1.3rem; line-height: 1.25; }
+    .slss-page table { font-size: .75rem; }
+    .slss-page th, .slss-page td { padding-left: 10px; padding-right: 10px; }
+    .dashboard-large-grid { grid-template-columns: 1fr; }
+    .dashboard-large .dashboard-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-root .slss-kpi { padding: 14px; }
+    .dashboard-root .slss-kpi-value { font-size: 1.65rem; }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
