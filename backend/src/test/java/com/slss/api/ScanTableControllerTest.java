@@ -174,6 +174,17 @@ class ScanTableControllerTest {
   }
 
   @Test
+  void completedRowCannotBeEditedWithoutForcePermission() {
+    row.setStatus("COMPLETED");
+
+    var error = assertThrows(ResponseStatusException.class, () ->
+        controller.saveRow(1L, 1, List.of(new ScanTableController.Value("cpu_sn", "CPU-NEW"))));
+
+    assertEquals(403, error.getStatusCode().value());
+    assertTrue(error.getReason().contains("PERM_FORCE_EDIT_COMPLETED_SCAN"));
+  }
+
+  @Test
   void listTemplatesOnlyReturnsTenantVisibleTemplates() {
     var visible = new ScanTemplate();
     visible.setCustomerName("客户 A"); visible.setModel("A-1");
