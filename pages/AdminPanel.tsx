@@ -98,7 +98,7 @@ const AdminPanel: React.FC = () => {
   const { theme, setTheme, themeConfig } = useTheme();
 
   // -- Config States --
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>([]); const [userPage,setUserPage]=useState(0); const [userTotalPages,setUserTotalPages]=useState(0);
   const [permissionView, setPermissionView] = useState<'users' | 'groups'>('users');
   const [permissionGroups, setPermissionGroups] = useState<any[]>([]);
   const [selectedPermissionGroup, setSelectedPermissionGroup] = useState<number | null>(null);
@@ -120,8 +120,8 @@ const AdminPanel: React.FC = () => {
   const [scopeValue, setScopeValue] = useState('');
   const [permissionDirty, setPermissionDirty] = useState<Set<number>>(new Set());
   const [auditRows,setAuditRows]=useState<any[]>([]); const [auditPage,setAuditPage]=useState(0); const [auditTotalPages,setAuditTotalPages]=useState(0); const [auditAction,setAuditAction]=useState('');
-  const [sessions,setSessions]=useState<any[]>([]);
-  const [tenants,setTenants]=useState<any[]>([]); const [tenantForm,setTenantForm]=useState({tenantCode:'',tenantName:''}); const [tenantAsset,setTenantAsset]=useState('');
+  const [sessions,setSessions]=useState<any[]>([]); const [sessionPage,setSessionPage]=useState(0); const [sessionTotalPages,setSessionTotalPages]=useState(0);
+  const [tenants,setTenants]=useState<any[]>([]); const [tenantPage,setTenantPage]=useState(0); const [tenantTotalPages,setTenantTotalPages]=useState(0); const [tenantForm,setTenantForm]=useState({tenantCode:'',tenantName:''}); const [tenantAsset,setTenantAsset]=useState('');
   const [userDialog,setUserDialog]=useState<{mode:'create'|'edit'; user?:User}|null>(null);
   const [credentialForm,setCredentialForm]=useState({username:'',password:'',role:'TECHNICIAN'});
   const [adminError,setAdminError]=useState('');
@@ -213,11 +213,11 @@ const AdminPanel: React.FC = () => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
   useEffect(() => {
-    api.listUsers().then(rows => setUsers(rows.map((u:any) => ({ id:u.id, username:u.username, role:(u.roles?.find((r:string) => !r.startsWith('GROUP_')) || 'ADMIN') as UserRole, permissions:normalizePermissionList(u.permissions), personalPermissions:normalizePermissionList(u.personalPermissions), permissionGroupIds:(u.permissionGroupIds || []).map((id:any) => Number(id)), permissionSources:u.permissionSources || {}, status:u.status === 'ACTIVE' ? 'active' : 'pending', mustChangePassword:u.mustChangePassword } as User)))).catch(err => setAdminError(err?.message || '加载用户失败'));
-  }, []);
+    api.listUsers(userPage,50).then(page => { setUserTotalPages(page.totalPages||0); setUsers((page.content || []).map((u:any) => ({ id:u.id, username:u.username, role:(u.roles?.find((r:string) => !r.startsWith('GROUP_')) || 'ADMIN') as UserRole, permissions:normalizePermissionList(u.permissions), personalPermissions:normalizePermissionList(u.personalPermissions), permissionGroupIds:(u.permissionGroupIds || []).map((id:any) => Number(id)), permissionSources:u.permissionSources || {}, status:u.status === 'ACTIVE' ? 'active' : 'pending', mustChangePassword:u.mustChangePassword } as User))); }).catch(err => setAdminError(err?.message || '加载用户失败'));
+  }, [userPage]);
   useEffect(()=>{if(activeTab==='users')api.auditLogs(auditPage,20,auditAction).then(p=>{setAuditRows(p.content);setAuditTotalPages(p.totalPages);}).catch(e=>setAdminError(e?.message||'审计日志加载失败'));},[activeTab,auditPage,auditAction]);
-  useEffect(()=>{if(activeTab==='users')api.allSessions().then(setSessions).catch(e=>setAdminError(e?.message||'设备会话加载失败'));},[activeTab]);
-  useEffect(()=>{if(activeTab==='users')api.tenants().then(setTenants).catch(e=>setAdminError(e?.message||'租户加载失败'));},[activeTab]);
+  useEffect(()=>{if(activeTab==='users')api.allSessions(sessionPage,20).then(p=>{setSessions(p.content||[]);setSessionTotalPages(p.totalPages||0);}).catch(e=>setAdminError(e?.message||'设备会话加载失败'));},[activeTab,sessionPage]);
+  useEffect(()=>{if(activeTab==='users')api.tenants(tenantPage,50).then(p=>{setTenants(p.content||[]);setTenantTotalPages(p.totalPages||0);}).catch(e=>setAdminError(e?.message||'租户加载失败'));},[activeTab,tenantPage]);
   useEffect(()=>{if(activeTab==='users'){api.permissionAudit().then(setPermissionAuditRows).catch(e=>setAdminError(e?.message||'权限审计加载失败'));api.permissionApprovals().then(setPermissionApprovals).catch(e=>setAdminError(e?.message||'权限审批加载失败'));}},[activeTab]);
   useEffect(() => {
     // Load group membership alongside the personal matrix so administrators
@@ -244,7 +244,7 @@ const AdminPanel: React.FC = () => {
       setGroupDirty(false);
     }
   }, [permissionGroups, selectedPermissionGroup]);
-  const reloadSessions=()=>api.allSessions().then(setSessions).catch(e=>setAdminError(e?.message||'设备会话加载失败'));
+  const reloadSessions=()=>api.allSessions(sessionPage,20).then(p=>{setSessions(p.content||[]);setSessionTotalPages(p.totalPages||0);}).catch(e=>setAdminError(e?.message||'设备会话加载失败'));
   const revokeSession=(id:number)=>api.revokeAnySession(id).then(reloadSessions).catch((e:any)=>setSaveStatus({type:'error',message:e.message}));
   const revokeUserSessions=(username:string)=>api.revokeUserSessions(username).then(reloadSessions).catch((e:any)=>setSaveStatus({type:'error',message:e.message}));
   const createTenant=async()=>{try{const t=await api.createTenant(tenantForm);setTenants(v=>[...v,t]);setTenantForm({tenantCode:'',tenantName:''});}catch(e:any){setAdminError(e.message);}};
@@ -453,10 +453,7 @@ const AdminPanel: React.FC = () => {
     if (!group) return;
     if (!groupForm.name.trim()) { setAdminError('权限组名称不能为空'); return; }
     try {
-      const updated = await api.updatePermissionGroup(group.id, { name: groupForm.name.trim(), description: groupForm.description.trim(), enabled: group.enabled !== false, version: group.version });
-      const permissionResult = await api.updatePermissionGroupPermissions(group.id, group.permissions || [], updated.version);
-      const memberResult = await api.updatePermissionGroupMembers(group.id, group.userIds || [], permissionResult.version);
-      const normalized = { ...group, ...updated, ...permissionResult, ...memberResult, name: groupForm.name.trim(), description: groupForm.description.trim() };
+      const normalized = await api.updatePermissionGroupAggregate(group.id, { name: groupForm.name.trim(), description: groupForm.description.trim(), enabled: group.enabled !== false, permissions: group.permissions || [], userIds: group.userIds || [], version: group.version });
       setPermissionGroups(previous => previous.map(item => item.id === group.id ? normalized : item));
       setGroupDirty(false);
       setSaveStatus({ type: 'success', message: `权限组“${normalized.name}”已保存` });
@@ -963,6 +960,7 @@ const AdminPanel: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+                <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={userPage===0} onClick={()=>setUserPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{userPage+1}/{Math.max(userTotalPages,1)}</span><button disabled={userPage+1>=userTotalPages} onClick={()=>setUserPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
                 </>
                 )}
                 {!USE_MOCK_DATA && <div className="mt-8">
@@ -971,6 +969,7 @@ const AdminPanel: React.FC = () => {
                     <table className="min-w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">用户</th><th className="p-3 text-left">设备</th><th className="p-3 text-left">IP</th><th className="p-3 text-left">创建/到期</th><th className="p-3 text-left">状态</th><th className="p-3">操作</th></tr></thead>
                     <tbody>{sessions.map(s=><tr key={s.id} className="border-t"><td className="p-3">{s.username}</td><td className="p-3 max-w-xs truncate" title={s.userAgent}>{s.userAgent||'未知设备'}</td><td className="p-3 font-mono">{s.ipAddress||'-'}</td><td className="p-3 text-xs">{new Date(s.createdAt).toLocaleString()}<br/>{new Date(s.expiresAt).toLocaleString()}</td><td className="p-3">{s.revoked?<span className="text-gray-400">已撤销</span>:<span className="text-green-600">有效</span>}</td><td className="p-3 text-center space-x-2">{!s.revoked&&<button onClick={()=>revokeSession(s.id)} className="text-red-600">撤销</button>}<button onClick={()=>revokeUserSessions(s.username)} className="text-orange-600">撤销该用户全部</button></td></tr>)}</tbody></table>
                   </div>
+                  <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={sessionPage===0} onClick={()=>setSessionPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{sessionPage+1}/{Math.max(sessionTotalPages,1)}</span><button disabled={sessionPage+1>=sessionTotalPages} onClick={()=>setSessionPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
                 </div>}
                 {!USE_MOCK_DATA && <div className="mt-8 rounded-xl border border-cyan-200 bg-cyan-50 p-5">
                   <h3 className="text-lg font-medium text-slate-900">客户租户与资产归属</h3>
@@ -981,6 +980,7 @@ const AdminPanel: React.FC = () => {
                   </div>
                   <div className="mt-4 flex gap-2"><input value={tenantAsset} onChange={e=>setTenantAsset(e.target.value)} placeholder="历史资产 SN" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>{tenants.map(t=><button key={t.id} onClick={()=>migrateAsset(t.id)} disabled={!tenantAsset} className="rounded-lg border border-cyan-700 px-3 py-2 text-xs text-cyan-800">迁移至 {t.tenantName}</button>)}</div>
                   <div className="mt-4 flex flex-wrap gap-2">{tenants.map(t=><span key={t.id} className="rounded-full bg-white px-3 py-1 text-xs text-slate-700">{t.tenantCode} · {t.tenantName}</span>)}</div>
+                  <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={tenantPage===0} onClick={()=>setTenantPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{tenantPage+1}/{Math.max(tenantTotalPages,1)}</span><button disabled={tenantPage+1>=tenantTotalPages} onClick={()=>setTenantPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
                 </div>}
               </div>
             )}

@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -52,7 +53,7 @@ public class UserAdminController {
   }
 
   @GetMapping("/users") @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  public List<UserResponse> list(){return users.findAll().stream().map(this::response).toList();}
+  public Page<UserResponse> list(@PageableDefault(size=50, sort="username") Pageable pageable){return users.findAll(pageable).map(this::response);}
 
   @PostMapping("/users") @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')") @Transactional
   public UserResponse create(@Valid @RequestBody CreateUserRequest r,Principal principal,HttpServletRequest request){
