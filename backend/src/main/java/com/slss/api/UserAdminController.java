@@ -28,12 +28,11 @@ public class UserAdminController {
   private final UserRepository users;
   private final RoleRepository roles;
   private final PermissionRepository permissions;
-  private final AuditLogRepository auditLogs;
   private final PasswordEncoder encoder;
   private final AuditService audit;
   private final RefreshTokenRepository refreshTokens;
   private final PermissionCacheService permissionCache;
-  public UserAdminController(UserRepository u,RoleRepository r,PermissionRepository p,AuditLogRepository logs,PasswordEncoder e,AuditService a,RefreshTokenRepository tokens,PermissionCacheService cache){users=u;roles=r;permissions=p;auditLogs=logs;encoder=e;audit=a;refreshTokens=tokens;permissionCache=cache;}
+  public UserAdminController(UserRepository u,RoleRepository r,PermissionRepository p,PasswordEncoder e,AuditService a,RefreshTokenRepository tokens,PermissionCacheService cache){users=u;roles=r;permissions=p;encoder=e;audit=a;refreshTokens=tokens;permissionCache=cache;}
 
   public record UserResponse(Long id,String username,String status,boolean mustChangePassword,int failedLoginAttempts,List<String> roles,List<String> permissions,List<String> personalPermissions,List<Long> permissionGroupIds,Map<String,List<String>> permissionSources){}
   public record CreateUserRequest(@Size(min=3,max=100,message="用户名至少需要 3 个字符") String username,@Size(min=8,max=100) String password,@NotEmpty List<String> roles){}
@@ -127,10 +126,6 @@ public class UserAdminController {
     // or all sessions through SessionController when required.
     audit.record(principal.getName(),"USER_PERMISSIONS","USER",String.valueOf(id),String.join(",",r.permissions()==null?List.of():r.permissions()),request.getRemoteAddr(),true); return response(user);
   }
-
-  @GetMapping("/audit-logs") @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  public Page<AuditLogResponse> auditLogs(@RequestParam(defaultValue="") String action,Pageable pageable){var page=action.isBlank()?auditLogs.findAll(pageable):auditLogs.findByActionContainingIgnoreCase(action,pageable);return page.map(x -> new AuditLogResponse(x.getId(),x.getActor(),x.getAction(),x.getTargetType(),x.getTargetId(),x.getDetails(),x.getIpAddress(),x.isSuccess(),x.getCreatedAt()));}
-  public record AuditLogResponse(Long id,String actor,String action,String targetType,String targetId,String details,String ipAddress,boolean success,java.time.Instant createdAt){}
 
   private boolean hasSystemPermission(User user) {
     return user.getRoles().stream().anyMatch(role -> role.getPermissions().stream().anyMatch(p -> "MANAGE_SYSTEM".equals(p.getCode())))

@@ -72,10 +72,6 @@ public class PermissionGroupController {
     permissionCache.bump();
     return u.getGroups().stream().map(this::view).toList();
   }
-  @PutMapping("/{id}/permissions") @Transactional
-  public GroupResponse permissions(@PathVariable Long id,@RequestBody GroupRequest r,Principal actor,HttpServletRequest req){ var g=groups.findByIdAndDeletedAtIsNull(id).orElseThrow(); checkVersion(g,r.version()); ensureGroupAdminSafety(g,g.isEnabled(),r.permissions()==null?permissionCodes(g):r.permissions(),memberIds(g)); apply(g,r); g.setUpdatedBy(actor.getName()); audit.record(actor.getName(),"PERMISSION_GROUP_PERMISSIONS","PERMISSION_GROUP",String.valueOf(id),String.valueOf(r.permissions()),req.getRemoteAddr(),true); var saved=groups.saveAndFlush(g); permissionCache.bump(); return view(saved); }
-  @PutMapping("/{id}/members") @Transactional
-  public GroupResponse members(@PathVariable Long id,@RequestBody UserGroupsRequest r,Principal actor,HttpServletRequest req){ var g=groups.findByIdAndDeletedAtIsNull(id).orElseThrow(); checkVersion(g,r.version()); var ids=r.ids(); if(ids.stream().anyMatch(java.util.Objects::isNull)||ids.stream().distinct().count()!=ids.size()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"成员列表包含重复或无效 ID"); ensureGroupAdminSafety(g,g.isEnabled(),permissionCodes(g),new HashSet<>(ids)); var affected=new java.util.HashSet<>(users.findAllByGroups_Id(id)); if(!ids.isEmpty()) affected.addAll(users.findAllById(ids)); affected.forEach(u->{u.getGroups().removeIf(x->x.getId().equals(id)); if(ids.contains(u.getId()))u.getGroups().add(g);}); users.saveAll(affected); g.setUpdatedBy(actor.getName()); var saved=groups.saveAndFlush(g); permissionCache.bump(); audit.record(actor.getName(),"PERMISSION_GROUP_MEMBERS","PERMISSION_GROUP",String.valueOf(id),ids.toString(),req.getRemoteAddr(),true); return view(saved); }
   /** Atomically updates profile, permissions and membership as one optimistic-lock transaction. */
   @PutMapping("/{id}/aggregate") @Transactional
   public GroupResponse aggregate(@PathVariable Long id,@RequestBody GroupAggregateRequest r,Principal actor,HttpServletRequest req) {

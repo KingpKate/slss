@@ -215,10 +215,10 @@ const AdminPanel: React.FC = () => {
   useEffect(() => {
     api.listUsers(userPage,50).then(page => { setUserTotalPages(page.totalPages||0); setUsers((page.content || []).map((u:any) => ({ id:u.id, username:u.username, role:(u.roles?.find((r:string) => !r.startsWith('GROUP_')) || 'ADMIN') as UserRole, permissions:normalizePermissionList(u.permissions), personalPermissions:normalizePermissionList(u.personalPermissions), permissionGroupIds:(u.permissionGroupIds || []).map((id:any) => Number(id)), permissionSources:u.permissionSources || {}, status:u.status === 'ACTIVE' ? 'active' : 'pending', mustChangePassword:u.mustChangePassword } as User))); }).catch(err => setAdminError(err?.message || '加载用户失败'));
   }, [userPage]);
-  useEffect(()=>{if(activeTab==='users')api.auditLogs(auditPage,20,auditAction).then(p=>{setAuditRows(p.content);setAuditTotalPages(p.totalPages);}).catch(e=>setAdminError(e?.message||'审计日志加载失败'));},[activeTab,auditPage,auditAction]);
+  useEffect(()=>{if(activeTab==='users')api.permissionAudit(auditPage,20,auditAction).then(p=>{setAuditRows(p.content);setAuditTotalPages(p.totalPages);}).catch(e=>setAdminError(e?.message||'审计日志加载失败'));},[activeTab,auditPage,auditAction]);
   useEffect(()=>{if(activeTab==='users')api.allSessions(sessionPage,20).then(p=>{setSessions(p.content||[]);setSessionTotalPages(p.totalPages||0);}).catch(e=>setAdminError(e?.message||'设备会话加载失败'));},[activeTab,sessionPage]);
   useEffect(()=>{if(activeTab==='users')api.tenants(tenantPage,50).then(p=>{setTenants(p.content||[]);setTenantTotalPages(p.totalPages||0);}).catch(e=>setAdminError(e?.message||'租户加载失败'));},[activeTab,tenantPage]);
-  useEffect(()=>{if(activeTab==='users'){api.permissionAudit().then(setPermissionAuditRows).catch(e=>setAdminError(e?.message||'权限审计加载失败'));api.permissionApprovals().then(setPermissionApprovals).catch(e=>setAdminError(e?.message||'权限审批加载失败'));}},[activeTab]);
+  useEffect(()=>{if(activeTab==='users'){api.permissionApprovals().then(setPermissionApprovals).catch(e=>setAdminError(e?.message||'权限审批加载失败'));}},[activeTab]);
   useEffect(() => {
     // Load group membership alongside the personal matrix so administrators
     // can see every effective authorization source without switching tabs.
