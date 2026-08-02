@@ -85,10 +85,22 @@ public class AiChannelService {
   public Map<String, Object> models(long id) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
-      if (!"OPENAI_COMPATIBLE".equalsIgnoreCase(channel.getProtocol())) return Map.of("models", List.of(channel.getModel()), "source", "configured");
+      if ("ANTHROPIC".equalsIgnoreCase(channel.getProtocol())) return Map.of("models", List.of(channel.getModel()), "source", "configured", "message", "Anthropic 官方接口不提供模型目录，使用渠道配置模型");
       var base = channel.getBaseUrl().replaceAll("/+$", "");
-      JsonNode data = http.get().uri(base + "/models").headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
-      var result = new ArrayList<String>(); if (data != null && data.path("data").isArray()) data.path("data").forEach(n -> result.add(n.path("id").asText()));
+      JsonNode data;
+      if ("GEMINI".equalsIgnoreCase(channel.getProtocol())) {
+        String key = decrypt(channel.getEncryptedApiKey());
+        if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
+        data = http.get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
+      } else {
+        String key = decrypt(channel.getEncryptedApiKey());
+        if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
+        data = http.get().uri(base + "/models").headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class);
+      }
+      final var discovered = new ArrayList<String>();
+      if (data != null && data.path("data").isArray()) data.path("data").forEach(n -> { String modelId = n.path("id").asText(""); if (!modelId.isBlank()) discovered.add(modelId); });
+      if (data != null && data.path("models").isArray()) data.path("models").forEach(n -> { String name = n.path("name").asText(""); if (name.isBlank()) name = n.path("id").asText(""); if (name.startsWith("models/")) name = name.substring(7); if (!name.isBlank()) discovered.add(name); });
+      var result = new ArrayList<>(new LinkedHashSet<>(discovered));
       return Map.of("models", result.isEmpty() ? List.of(channel.getModel()) : result, "source", "remote");
     } catch (Exception ex) { throw new IllegalStateException("模型发现失败：" + trim(ex.getMessage()), ex); }
   }
@@ -97,7 +109,7 @@ public class AiChannelService {
     String name = text(b, "name", 1, 80); String provider = textOr(b, "provider", "custom", 1, 32);
     String protocol = textOr(b, "protocol", "OPENAI_COMPATIBLE", 1, 32).toUpperCase(Locale.ROOT);
     if (!Set.of("OPENAI_COMPATIBLE", "ANTHROPIC", "GEMINI", "CUSTOM").contains(protocol)) throw new IllegalArgumentException("不支持的 AI 协议");
-    c.setName(name); c.setProvider(provider); c.setProtocol(protocol); c.setBaseUrl(text(b, "baseUrl", 1, 500)); c.setModel(text(b, "model", 1, 160));
+    c.setName(name); c.setProvider(provider); c.setProtocol(protocol); c.setBaseUrl(text(b, "baseUrl", 1, 500)); c.setModel(textOr(b, "model", "", 0, 160));
     c.setHeadersJson(jsonString(b.get("headers"), "{}")); c.setModelMappingJson(jsonString(b.get("modelMapping"), "{}"));
     if (b.get("enabled") != null) c.setEnabled(Boolean.parseBoolean(String.valueOf(b.get("enabled"))));
     c.setPriority(integer(b.get("priority"), 100, 0, 10000)); c.setWeight(integer(b.get("weight"), 100, 1, 10000)); c.setTimeoutMs(integer(b.get("timeoutMs"), 30000, 1000, 300000));
@@ -106,6 +118,7 @@ public class AiChannelService {
   }
   private Map<String, Object> view(AiChannel c) { var m = new LinkedHashMap<String, Object>(); m.put("id", c.getId()); m.put("name", c.getName()); m.put("provider", c.getProvider()); m.put("protocol", c.getProtocol()); m.put("baseUrl", c.getBaseUrl()); m.put("model", c.getModel()); m.put("headers", parse(c.getHeadersJson())); m.put("modelMapping", parse(c.getModelMappingJson())); m.put("enabled", c.isEnabled()); m.put("priority", c.getPriority()); m.put("weight", c.getWeight()); m.put("timeoutMs", c.getTimeoutMs()); m.put("hasApiKey", c.getEncryptedApiKey() != null && !c.getEncryptedApiKey().isBlank()); m.put("apiKeyMasked", mask(c.getEncryptedApiKey())); m.put("lastStatus", c.getLastStatus()); m.put("lastError", c.getLastError()); m.put("lastTestAt", c.getLastTestAt()); m.put("version", c.getVersion()); return m; }
   private String request(AiChannel c, String prompt, String systemPrompt, boolean test) {
+    if (c.getModel() == null || c.getModel().isBlank()) throw new IllegalStateException("请先选择或配置模型");
     String key = decrypt(c.getEncryptedApiKey()); if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
     String base = c.getBaseUrl().replaceAll("/+$", "");
     if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))), "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); var response = http.post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "GEMINI"); }
