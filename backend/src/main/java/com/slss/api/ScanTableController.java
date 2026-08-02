@@ -84,10 +84,65 @@ public class ScanTableController {
      if(v==null||v.fieldKey()==null||v.fieldKey().isBlank()) continue;
      if(!allowed.contains(v.fieldKey())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"无效的扫码字段："+v.fieldKey());
    }
+   // Validate all submitted serials before mutating the managed entity. This
+   // prevents a partial save when a duplicate is found in another device or
+   // in a second column of the same row.
+   var submittedSn = new HashMap<String,String>();
+   for (var v : values) {
+     if (v == null || v.fieldKey() == null || v.fieldKey().isBlank()) continue;
+     var field = fieldDefinition(table, v.fieldKey());
+     if (!field.sn()) continue;
+     var value = Optional.ofNullable(v.value()).orElse("").trim();
+     if (value.isBlank()) continue;
+     var previous = submittedSn.putIfAbsent(value.toLowerCase(Locale.ROOT), v.fieldKey());
+     if (previous != null && !previous.equals(v.fieldKey()) && !hasAuthority("PERM_FORCE_DUPLICATE_SN"))
+       throw new ResponseStatusException(HttpStatus.CONFLICT, "SN " + value + " 在本行多个配件中重复使用（" + previous + " / " + v.fieldKey() + "）");
+     if (!hasAuthority("PERM_FORCE_DUPLICATE_SN")) {
+       var duplicate = findDuplicateScanValue(table, row, value);
+       if (duplicate != null)
+         throw new ResponseStatusException(HttpStatus.CONFLICT, "SN " + value + " 已绑定设备 " + duplicate.machineSn() + " 的配件 " + duplicate.fieldLabel());
+     }
+   }
    var byKey=new HashMap<String,ScanTableValue>();row.getValues().forEach(x->byKey.put(x.getFieldKey(),x));
-   for(var v:values){if(v.fieldKey()==null||v.fieldKey().isBlank())continue;var x=byKey.computeIfAbsent(v.fieldKey(),k->{var n=new ScanTableValue();n.setRow(row);n.setFieldKey(k);row.getValues().add(n);return n;});var value=v.value()==null?"":v.value();var field=table.getTemplate().getFields().stream().filter(f->v.fieldKey().equals(f.getFieldKey())).findFirst().orElse(null);var isSn=field!=null&&("SN".equalsIgnoreCase(field.getFieldType())||field.getFieldLabel().matches(".*(SN|序列号|Serial).*")&&!field.getFieldLabel().matches(".*型号.*"));x.setFieldValue(value);x.setOperatorNo(isSn&& !value.isBlank()?actor():null);x.setScannedAt(isSn&& !value.isBlank()?Instant.now():null);}
+   for(var v:values){if(v==null||v.fieldKey()==null||v.fieldKey().isBlank())continue;var x=byKey.computeIfAbsent(v.fieldKey(),k->{var n=new ScanTableValue();n.setRow(row);n.setFieldKey(k);row.getValues().add(n);return n;});var value=Optional.ofNullable(v.value()).orElse("").trim();var field=fieldDefinition(table,v.fieldKey());var isSn=field.sn();x.setFieldValue(value);x.setOperatorNo(isSn&& !value.isBlank()?actor():null);x.setScannedAt(isSn&& !value.isBlank()?Instant.now():null);if(field.machine()&&isSn)row.setMachineSn(value.isBlank()?null:value);}
    return tableDto(tables.save(table));
  }
+
+ private record FieldInfo(boolean sn, boolean machine, String label) {}
+ private FieldInfo fieldDefinition(ScanTable table, String key) {
+   var field = table.getTemplate().getFields().stream().filter(f -> key.equals(f.getFieldKey())).findFirst().orElse(null);
+   if (field != null) {
+     var label = Optional.ofNullable(field.getFieldLabel()).orElse(key);
+     return new FieldInfo("SN".equalsIgnoreCase(field.getFieldType()) || (label.matches(".*(SN|序列号|Serial).*") && !label.matches(".*型号.*")), label.matches(".*整机.*(SN|序列号).*" ) || "machine_sn".equalsIgnoreCase(key), label);
+   }
+   if (table.getCustomFieldDefs() != null) for (var definition : table.getCustomFieldDefs().split("\\n")) {
+     var parts = definition.split("\\|", -1); if (parts.length >= 2 && key.equals(parts[0])) {
+       var label = parts[1]; var type = parts.length >= 4 ? parts[3] : "";
+       return new FieldInfo("SN".equalsIgnoreCase(type) || label.matches(".*(SN|序列号|Serial).*") && !label.matches(".*型号.*"), label.matches(".*整机.*(SN|序列号).*" ) || "machine_sn".equalsIgnoreCase(key), label);
+     }
+   }
+   return new FieldInfo(false, false, key);
+ }
+ private record DuplicateInfo(String machineSn, String fieldLabel) {}
+ private DuplicateInfo findDuplicateScanValue(ScanTable current, ScanTableRow currentRow, String value) {
+   var normalized = value.trim();
+   for (var candidate : tables.findAll()) {
+     if (candidate.getId() == null || !tenantSame(candidate.getTenant(), current.getTenant())) continue;
+     for (var candidateRow : candidate.getRows()) {
+       for (var candidateValue : candidateRow.getValues()) {
+         if (candidateRow.getId() != null && candidateRow.getId().equals(currentRow.getId()) && candidateValue.getFieldValue() != null && normalized.equalsIgnoreCase(candidateValue.getFieldValue())) continue;
+         if (candidateValue.getFieldValue() != null && normalized.equalsIgnoreCase(candidateValue.getFieldValue())) {
+           var info = fieldDefinition(candidate, candidateValue.getFieldKey());
+           if (!info.sn()) continue;
+           var machine = Optional.ofNullable(candidateRow.getMachineSn()).filter(x -> !x.isBlank()).orElseGet(() -> candidateRow.getValues().stream().filter(v -> fieldDefinition(candidate, v.getFieldKey()).machine()).map(ScanTableValue::getFieldValue).filter(x -> x != null && !x.isBlank()).findFirst().orElse(candidate.getModel() + "#" + candidateRow.getRowNumber()));
+           return new DuplicateInfo(machine, info.label());
+         }
+       }
+     }
+   }
+   return null;
+ }
+ private boolean tenantSame(CustomerTenant left, CustomerTenant right) { return left == null ? right == null : right != null && Objects.equals(left.getId(), right.getId()); }
 
  private Set<String> allowedFieldKeys(ScanTable table){
    var hidden=table.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(table.getHiddenFieldKeys().split(",")));
@@ -106,7 +161,7 @@ public class ScanTableController {
    if(f.key()==null||f.key().isBlank()||f.label()==null||f.label().isBlank())throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"列名称不能为空");
    var defs=new ArrayList<String>();if(table.getCustomFieldDefs()!=null&&!table.getCustomFieldDefs().isBlank())defs.addAll(Arrays.asList(table.getCustomFieldDefs().split("\\n")));
    if(defs.stream().anyMatch(x->x.startsWith(f.key()+"|")))throw new ResponseStatusException(HttpStatus.CONFLICT,"列已存在");
-   defs.add(f.key()+"|"+f.label().replace("|","/")+"|"+Optional.ofNullable(f.afterKey()).orElse("").replace("|",""));table.setCustomFieldDefs(String.join("\n",defs));return tableDto(tables.save(table));
+   defs.add(f.key()+"|"+f.label().replace("|","/")+"|"+Optional.ofNullable(f.afterKey()).orElse("").replace("|","")+"|"+Optional.ofNullable(f.type()).orElse("TEXT"));table.setCustomFieldDefs(String.join("\n",defs));return tableDto(tables.save(table));
  }
  @PostMapping("/tables/{id}/rows/{rowNumber}/complete") @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION')") @Transactional public Map<String,Object> completeRow(@PathVariable Long id,@PathVariable int rowNumber){
    requireScanOperator();
@@ -132,7 +187,7 @@ public class ScanTableController {
    return tableDto(tables.save(table));
  }
  private Map<String,Object> templateDto(ScanTemplate t){var m=new LinkedHashMap<String,Object>();m.put("id",t.getId());m.put("customerName",t.getCustomerName());m.put("model",t.getModel());m.put("description",Optional.ofNullable(t.getDescription()).orElse(""));m.put("active",t.isActive());m.put("createdAt",t.getCreatedAt());m.put("fields",t.getFields().stream().sorted(Comparator.comparingInt(ScanTemplateField::getSortOrder)).map(f->Map.of("fieldKey",f.getFieldKey(),"fieldLabel",f.getFieldLabel(),"fieldType",f.getFieldType(),"required",f.isRequired())).toList());return m;}
- private List<Map<String,Object>> tableFields(ScanTable t){var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));var out=new ArrayList<Map<String,Object>>();t.getTemplate().getFields().stream().filter(f->!hidden.contains(f.getFieldKey())).sorted(Comparator.comparingInt(ScanTemplateField::getSortOrder)).forEach(f->out.add(Map.of("fieldKey",f.getFieldKey(),"fieldLabel",f.getFieldLabel(),"fieldType",f.getFieldType(),"required",f.isRequired())));if(t.getCustomFieldDefs()!=null)for(var d:t.getCustomFieldDefs().split("\\n")){var p=d.split("\\|",-1);if(p.length>=2&&!hidden.contains(p[0])){var item=Map.<String,Object>of("fieldKey",p[0],"fieldLabel",p[1],"fieldType",p[1].toLowerCase().contains("sn")?"SN":"TEXT","required",false);var after=p.length>=3?p[2]:"";var position=-1;for(var i=0;i<out.size();i++)if(after.equals(out.get(i).get("fieldKey")))position=i;out.add(position>=0?position+1:out.size(),item);}}return out;}
+ private List<Map<String,Object>> tableFields(ScanTable t){var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));var out=new ArrayList<Map<String,Object>>();t.getTemplate().getFields().stream().filter(f->!hidden.contains(f.getFieldKey())).sorted(Comparator.comparingInt(ScanTemplateField::getSortOrder)).forEach(f->out.add(Map.of("fieldKey",f.getFieldKey(),"fieldLabel",f.getFieldLabel(),"fieldType",f.getFieldType(),"required",f.isRequired())));if(t.getCustomFieldDefs()!=null)for(var d:t.getCustomFieldDefs().split("\\n")){var p=d.split("\\|",-1);if(p.length>=2&&!hidden.contains(p[0])){var type=p.length>=4?p[3]:(p[1].toLowerCase().contains("sn")?"SN":"TEXT");var item=Map.<String,Object>of("fieldKey",p[0],"fieldLabel",p[1],"fieldType",type,"required",false);var after=p.length>=3?p[2]:"";var position=-1;for(var i=0;i<out.size();i++)if(after.equals(out.get(i).get("fieldKey")))position=i;out.add(position>=0?position+1:out.size(),item);}}return out;}
  private Map<String,Object> tableDto(ScanTable t){return tableDto(t,false);}
  private Map<String,Object> tableDto(ScanTable t,boolean includeCompleted){var m=new LinkedHashMap<String,Object>();var template=templateDto(t.getTemplate());template.put("fields",tableFields(t));var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));m.put("id",t.getId());m.put("customerName",t.getCustomerName());m.put("model",t.getModel());m.put("dispatchOrderNo",Optional.ofNullable(t.getDispatchOrderNo()).orElse(""));m.put("disableAutoFillPartModels",t.isDisableAutoFillPartModels());m.put("quantity",t.getQuantity());m.put("status",t.getStatus());m.put("createdAt",t.getCreatedAt());m.put("template",template);m.put("rows",t.getRows().stream().filter(r->includeCompleted||!"COMPLETED".equals(r.getStatus())).map(r->Map.of("id",r.getId(),"rowNumber",r.getRowNumber(),"status",r.getStatus(),"values",r.getValues().stream().filter(v->!hidden.contains(v.getFieldKey())).map(v->Map.of("fieldKey",v.getFieldKey(),"value",Optional.ofNullable(v.getFieldValue()).orElse(""),"operatorNo",Optional.ofNullable(v.getOperatorNo()).orElse(""))).toList())).toList());return m;}
 }
