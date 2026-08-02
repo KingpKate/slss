@@ -54,7 +54,42 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   [data-theme] .hover\:border-cyan-400:hover, [data-theme] .hover\:border-cyan-300:hover { border-color: var(--theme-primary) !important; }
 
   .slss-shell { min-height: 100vh; background: var(--color-background); }
-  .slss-sidebar { background: #fff; border-right: 1px solid var(--color-border); }
+  .slss-sidebar { background: #fff; border-right: 1px solid var(--color-border); box-shadow: 8px 0 28px rgb(15 23 42 / .04); }
+  .slss-backdrop { background: rgb(15 23 42 / .42); backdrop-filter: blur(2px); }
+  .slss-brand-lockup { position: relative; display: flex; min-height: 132px; align-items: center; gap: 13px; padding: 20px; border-bottom: 1px solid var(--color-border); background: #fff; }
+  .slss-brand-lockup::before { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--theme-primary); content: ''; }
+  .slss-logo-safe { display: grid; flex: 0 0 56px; place-items: center; }
+  .slss-logo-frame { display: grid; width: 56px; height: 56px; place-items: center; overflow: hidden; border: 1px solid var(--theme-primary-border); border-radius: 14px; background: #fff; color: var(--theme-primary); box-shadow: 0 6px 16px rgb(15 23 42 / .08); }
+  .slss-logo-frame img { display: block; width: 100%; height: 100%; object-fit: contain; padding: 7px; }
+  .slss-brand-copy { min-width: 0; }
+  .slss-brand-name { overflow: hidden; margin-top: 3px; color: var(--color-primary); font-size: .85rem; font-weight: 700; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+  .slss-brand-caption { margin-top: 9px; color: #94a3b8; font-family: "Fira Code", monospace; font-size: .58rem; font-weight: 700; letter-spacing: .12em; }
+  .slss-close-sidebar { position: absolute; right: 10px; top: 10px; border-radius: 8px; padding: 8px; color: #64748b; }
+  .slss-close-sidebar:hover, .slss-menu-button:hover { background: var(--theme-primary-soft); color: var(--theme-primary); }
+  .slss-connection-strip { display: flex; align-items: center; gap: 9px; padding: 11px 20px; border-bottom: 1px solid var(--color-border); color: #64748b; font-size: .7rem; }
+  .slss-connection-version { margin-left: auto; color: #94a3b8; font-family: "Fira Code", monospace; font-size: .62rem; }
+  .slss-nav { padding: 13px 10px; }
+  .slss-nav-group { margin-bottom: 18px; }
+  .slss-nav-label { padding: 0 13px 7px; color: #94a3b8; font-size: .62rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+  .slss-nav-link { margin: 2px 0; border-left: 3px solid transparent; border-radius: 9px; color: #475569; }
+  .slss-nav-link:hover { background: var(--theme-primary-soft); color: var(--theme-primary-strong); }
+  .slss-nav-link-active { border-left-color: var(--theme-primary); background: var(--theme-primary-soft); color: var(--theme-primary-strong); box-shadow: inset 0 0 0 1px var(--theme-primary-border); }
+  .slss-account-panel { border-top: 1px solid var(--color-border); padding: 15px; background: #f8fafc; }
+  .slss-account-row { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+  .slss-user-avatar { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 11px; background: var(--theme-primary); color: #fff; font-size: .85rem; font-weight: 800; }
+  .slss-logout { display: flex; min-height: 40px; width: 100%; align-items: center; gap: 8px; border-radius: 8px; padding: 0 9px; color: #64748b; font-size: .78rem; font-weight: 700; transition: 160ms ease; }
+  .slss-logout:hover { background: #fff; color: #dc2626; }
+  .slss-menu-button { display: grid; place-items: center; border-radius: 9px; padding: 9px; color: #475569; }
+  .slss-breadcrumb { color: #94a3b8; font-family: "Fira Code", monospace; font-size: .62rem; font-weight: 700; letter-spacing: .13em; }
+  .slss-breadcrumb span { margin: 0 5px; color: var(--theme-primary); }
+  .slss-page-title { margin-top: 3px; color: var(--color-primary); font-size: 1.05rem; font-weight: 800; }
+  .slss-topbar-actions { display: flex; align-items: center; gap: 12px; }
+  .slss-api-pill { display: none; align-items: center; gap: 7px; border: 1px solid; border-radius: 999px; padding: 7px 11px; font-size: .7rem; font-weight: 700; }
+  .slss-api-pill.is-online { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+  .slss-api-pill.is-offline { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+  .slss-top-logo { display: grid; height: 38px; min-width: 68px; max-width: 132px; place-items: center; overflow: hidden; border: 1px solid var(--color-border); border-radius: 9px; background: #fff; }
+  .slss-top-logo img { width: 100%; height: 100%; object-fit: contain; padding: 5px 8px; }
+  @media (min-width: 768px) { .slss-api-pill { display: inline-flex; } }
   .slss-brand-panel { position: relative; overflow: hidden; background: linear-gradient(145deg, var(--theme-primary-strong), var(--theme-primary)); border-bottom: 1px solid var(--theme-primary-strong); }
   .slss-brand-panel::before { position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, #fff, rgb(255 255 255 / .35), transparent); content: ''; opacity: .8; }
   .slss-brand-panel::after { position: absolute; right: -56px; top: 18px; width: 150px; height: 150px; border: 1px solid rgb(255 255 255 / .25); border-radius: 50%; box-shadow: 0 0 0 18px rgb(255 255 255 / .07), 0 0 0 36px rgb(255 255 255 / .04); content: ''; pointer-events: none; }
