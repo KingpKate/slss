@@ -4,7 +4,6 @@ import { FileSpreadsheet, Save, Plus, Trash2, RefreshCw, Database, ScanLine, X, 
 import { Asset } from '../types';
 import { productionApi } from '../services/apiClient';
 import { useAuth } from '../components/AuthContext';
-import * as XLSX from 'xlsx';
 
 // Utility to generate batch name
 const generateBatchName = () => {
@@ -718,8 +717,9 @@ const ProductionEntry: React.FC<ProductionEntryProps> = ({ selectedTemplate, ini
       }
 
       const reader = new FileReader();
-      reader.onload = (evt) => {
+      reader.onload = async (evt) => {
         try {
+          const XLSX = await import('xlsx');
           const wb = XLSX.read(evt.target?.result, { type: 'array' });
           const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
           

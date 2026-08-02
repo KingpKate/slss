@@ -6,7 +6,6 @@ import { Plus, Search, X, User, Server, AlertCircle, Activity, LayoutGrid, List,
 import { OrderStatus, RepairOrder, DiscoveryPhase } from '../types';
 import { useTheme } from '../components/ThemeContext';
 import { afterSalesApi } from '../services/apiClient';
-import * as XLSX from 'xlsx';
 
 const ServiceOrders: React.FC = () => {
   const navigate = useNavigate();
@@ -65,7 +64,8 @@ const ServiceOrders: React.FC = () => {
   };
 
   // --- Export Logic ---
-  const handleExport = () => {
+  const handleExport = async () => {
+    const XLSX = await import('xlsx');
     const exportData = filteredOrders.map((o, index) => {
       // Helper to safely get parts info
       const parts = o.parts_list || [];
@@ -116,7 +116,8 @@ const ServiceOrders: React.FC = () => {
     }
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
+        const XLSX = await import('xlsx');
         try {
             const data = evt.target?.result;
             const wb = XLSX.read(data, { type: 'array' });
