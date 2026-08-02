@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:slss;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+slss:
+  security:
+    jwt-secret: test-secret-that-is-at-least-32-bytes-long
+    refresh-secret: test-refresh-secret-that-is-at-least-32-bytes-long
+    report-download-secret: test-report-download-secret-32-bytes
+    jwt-ttl: PT15M

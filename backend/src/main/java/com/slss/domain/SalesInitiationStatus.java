@@ -1,0 +1,2 @@
+package com.slss.domain;
+public enum SalesInitiationStatus { DRAFT, SUBMITTED, SALES_REVIEW, PROCUREMENT_PENDING, QUOTING, QUOTED, APPROVED, REJECTED, CANCELLED }

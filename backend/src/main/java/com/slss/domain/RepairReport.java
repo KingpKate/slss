@@ -1,0 +1,4 @@
+package com.slss.domain;
+import jakarta.persistence.*; import java.time.Instant;
+@Entity @Table(name="repair_reports")
+public class RepairReport { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id; @OneToOne(fetch=FetchType.LAZY) @JoinColumn(name="repair_order_id",nullable=false,unique=true) RepairOrder order; @Column(nullable=false,columnDefinition="TEXT") String diagnosis; @Column(nullable=false,columnDefinition="TEXT") String resolution; @Column(name="test_conclusion",columnDefinition="TEXT") String testConclusion; public Long getId(){return id;} public String getDiagnosis(){return diagnosis;} public String getResolution(){return resolution;} public String getTestConclusion(){return testConclusion;} public void setOrder(RepairOrder v){order=v;} public void setDiagnosis(String v){diagnosis=v;} public void setResolution(String v){resolution=v;} public void setTestConclusion(String v){testConclusion=v;} }

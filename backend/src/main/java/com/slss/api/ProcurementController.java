@@ -1,0 +1,22 @@
+package com.slss.api;
+import com.slss.domain.*; import com.slss.repository.*; import com.slss.service.AuditService; import com.slss.service.SalesInitiationService; import jakarta.transaction.Transactional; import jakarta.validation.Valid; import jakarta.validation.constraints.*; import org.springframework.http.*; import org.springframework.security.access.prepost.PreAuthorize; import org.springframework.security.core.context.SecurityContextHolder; import org.springframework.web.bind.annotation.*; import org.springframework.web.server.ResponseStatusException; import java.math.BigDecimal; import java.time.*; import java.util.*;
+@RestController @RequestMapping("/api/v1/procurement-projects") @PreAuthorize("hasAuthority('PERM_MANAGE_PROCUREMENT')")
+public class ProcurementController {
+ private final ProcurementProjectRepository projects; private final SupplierQuotationRepository quotations; private final SalesInitiationService salesInitiationService; private final AuditService audit;
+ public ProcurementController(ProcurementProjectRepository p,SupplierQuotationRepository q,SalesInitiationService s,AuditService a){projects=p;quotations=q;salesInitiationService=s;audit=a;}
+ public record ProjectResponse(Long id,String projectNo,Long initiationId,String status,LocalDate quotationDeadline,String selectedSupplier){}
+ public record QuoteRequest(@NotBlank String supplierName,@NotNull @DecimalMin("0.01") BigDecimal amount,String currency,LocalDate deliveryDate,LocalDate validityDate,String notes){}
+ public record QuoteResponse(Long id,Long projectId,String supplierName,BigDecimal amount,String currency,LocalDate deliveryDate,LocalDate validityDate,String notes,String status,Instant createdAt){}
+ private ProjectResponse dto(ProcurementProject x){return new ProjectResponse(x.getId(),x.getProjectNo(),x.getInitiationId(),x.getStatus(),x.getQuotationDeadline(),x.getSelectedSupplier());}
+ private QuoteResponse dto(SupplierQuotation x){return new QuoteResponse(x.getId(),x.getProjectId(),x.getSupplierName(),x.getAmount(),x.getCurrency(),x.getDeliveryDate(),x.getValidityDate(),x.getNotes(),x.getStatus(),x.getCreatedAt());}
+ @GetMapping public List<ProjectResponse> list(){return projects.findAll().stream().map(this::dto).toList();}
+ @GetMapping("/{id}/quotations") public List<QuoteResponse> quotes(@PathVariable Long id){project(id);return quotations.findByProject_Id(id).stream().map(this::dto).toList();}
+ @PostMapping("/{id}/quotations") @Transactional public QuoteResponse quote(@PathVariable Long id,@Valid @RequestBody QuoteRequest r){var p=project(id);if(!Set.of("PENDING","QUOTING").contains(p.getStatus()))throw new ResponseStatusException(HttpStatus.CONFLICT,"当前采购状态不允许新增报价");p.setStatus("QUOTING");projects.save(p);var q=new SupplierQuotation();q.setProject(p);q.setSupplierName(r.supplierName());q.setAmount(r.amount());q.setCurrency(r.currency()==null?"CNY":r.currency());q.setDeliveryDate(r.deliveryDate());q.setValidityDate(r.validityDate());q.setNotes(r.notes());return dto(quotations.save(q));}
+ @PostMapping("/{id}/quotations/{quoteId}/select") @Transactional public ProjectResponse select(@PathVariable Long id,@PathVariable Long quoteId){var p=project(id);var selected=quotations.findById(quoteId).filter(q->q.getProjectId().equals(id)).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"报价不存在"));for(var q:quotations.findByProject_Id(id)){q.setStatus(q.getId().equals(quoteId)?"SELECTED":"REJECTED");quotations.save(q);}p.setSelectedSupplier(selected.getSupplierName());p.setStatus("QUOTED");
+  var initiationId=p.getInitiationId();var initiation=p.getInitiation();
+  if(initiation.getStatus()==SalesInitiationStatus.PROCUREMENT_PENDING)salesInitiationService.transition(initiationId,SalesInitiationStatus.QUOTING,"采购开始报价");
+  salesInitiationService.transition(initiationId,SalesInitiationStatus.QUOTED,"选定供应商: "+selected.getSupplierName());
+  var saved=projects.save(p);audit.record(actor(),"PROCUREMENT_SELECT_SUPPLIER","PROCUREMENT_PROJECT",String.valueOf(id),"选定供应商: "+selected.getSupplierName(),null,true);return dto(saved);}
+ private String actor(){return java.util.Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication()).map(x->x.getName()).orElse("system");}
+ private ProcurementProject project(Long id){return projects.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"采购项目不存在"));}
+}

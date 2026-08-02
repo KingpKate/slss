@@ -1,0 +1,2 @@
+INSERT IGNORE INTO permissions(code,name)
+VALUES ('MANAGE_PRODUCTION_REPAIR','生产维修');

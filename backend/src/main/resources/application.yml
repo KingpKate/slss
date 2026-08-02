@@ -1,0 +1,52 @@
+server:
+  servlet:
+    context-path: /
+spring:
+  application:
+    name: slss-backend
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  datasource:
+    driver-class-name: ${jdbc.driverClassName}
+    url: ${jdbc.url}
+    username: ${jdbc.username}
+    password: ${jdbc.password}
+    hikari:
+      maximum-pool-size: ${jdbc.maximumPoolSize:20}
+      minimum-idle: ${jdbc.minimumIdle:5}
+      connection-timeout: ${jdbc.connectionTimeout:30000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  rabbitmq:
+    host: ${rabbit.host:localhost}
+    port: ${rabbit.port:5672}
+    username: ${rabbit.username:guest}
+    password: ${rabbit.password:guest}
+  data:
+    redis:
+      host: ${redis.host:localhost}
+      port: ${redis.port:6379}
+      password: ${redis.password:}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+slss:
+  import:
+    executor: ${import.executor:local}
+    queue: ${import.queue:slss.production.import}
+  security:
+    jwt-secret: ${security.jwtSecret}
+    jwt-ttl: ${security.jwtTtl:PT8H}
+    refresh-secret: ${security.refreshSecret:replace-this-independent-refresh-secret-32-bytes}
+    refresh-ttl: ${security.refreshTtl:P30D}
+    report-download-secret: ${security.reportDownloadSecret:change-this-report-download-secret}
+  cors:
+    allowed-origins: ${security.corsAllowedOrigins:http://localhost:5173}

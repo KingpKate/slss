@@ -1,0 +1,16 @@
+ALTER TABLE repair_orders ADD COLUMN tenant_id BIGINT NULL;
+ALTER TABLE production_batches ADD COLUMN tenant_id BIGINT NULL;
+ALTER TABLE scan_templates ADD COLUMN tenant_id BIGINT NULL;
+ALTER TABLE scan_tables ADD COLUMN tenant_id BIGINT NULL;
+ALTER TABLE repair_orders ADD CONSTRAINT fk_repair_order_tenant FOREIGN KEY (tenant_id) REFERENCES customer_tenants(id);
+ALTER TABLE production_batches ADD CONSTRAINT fk_production_batch_tenant FOREIGN KEY (tenant_id) REFERENCES customer_tenants(id);
+ALTER TABLE scan_templates ADD CONSTRAINT fk_scan_template_tenant FOREIGN KEY (tenant_id) REFERENCES customer_tenants(id);
+ALTER TABLE scan_tables ADD CONSTRAINT fk_scan_table_tenant FOREIGN KEY (tenant_id) REFERENCES customer_tenants(id);
+CREATE INDEX idx_repair_orders_tenant ON repair_orders(tenant_id);
+CREATE INDEX idx_production_batches_tenant ON production_batches(tenant_id);
+CREATE INDEX idx_scan_templates_tenant ON scan_templates(tenant_id);
+CREATE INDEX idx_scan_tables_tenant ON scan_tables(tenant_id);
+UPDATE repair_orders r JOIN customer_tenants t ON LOWER(TRIM(r.customer_name))=LOWER(TRIM(t.tenant_name)) SET r.tenant_id=t.id WHERE r.tenant_id IS NULL;
+UPDATE production_batches b JOIN customer_tenants t ON LOWER(TRIM(b.batch_name))=LOWER(TRIM(t.tenant_name)) SET b.tenant_id=t.id WHERE b.tenant_id IS NULL;
+UPDATE scan_templates s JOIN customer_tenants t ON LOWER(TRIM(s.customer_name))=LOWER(TRIM(t.tenant_name)) SET s.tenant_id=t.id WHERE s.tenant_id IS NULL;
+UPDATE scan_tables s JOIN customer_tenants t ON LOWER(TRIM(s.customer_name))=LOWER(TRIM(t.tenant_name)) SET s.tenant_id=t.id WHERE s.tenant_id IS NULL;
