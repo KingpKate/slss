@@ -280,6 +280,8 @@ const AdminPanel: React.FC = () => {
   const [systemSettings, setSystemSettings] = useState({ appName: 'SLSS - 服务器全生命周期系统', theme: 'green' as ThemeColor, maintenanceMode: false, logRetentionDays: 90 });
   const [logoValue, setLogoValue] = useState('');
   const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
+  const [aiChannels, setAiChannels] = useState<any[]>([]);
+  const [aiChannelForm, setAiChannelForm] = useState({ name: '', provider: 'custom', protocol: 'OPENAI_COMPATIBLE', baseUrl: '', model: '', apiKey: '', enabled: true, priority: 100, weight: 100, timeoutMs: 30000 });
 
   // -- Feedback State --
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -299,6 +301,7 @@ const AdminPanel: React.FC = () => {
       setAiConfig(previous => ({ ...previous, provider: value.provider || previous.provider, model: value.model || previous.model, baseUrl: value.baseUrl || previous.baseUrl }));
       setAiKeyConfigured(Boolean(value.hasApiKey));
     }).catch((e: any) => setAdminError(e?.message || 'AI 网关配置加载失败'));
+    api.aiChannels().then(setAiChannels).catch((e: any) => setAdminError(e?.message || 'AI 渠道列表加载失败'));
   }, []);
 
   useEffect(() => {
@@ -373,6 +376,18 @@ const AdminPanel: React.FC = () => {
       window.setTimeout(() => setSaveStatus(null), 4000);
     } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 配置保存失败' }); }
   };
+
+  const saveAiChannel = async () => {
+    try {
+      if (!aiChannelForm.name.trim() || !aiChannelForm.baseUrl.trim() || !aiChannelForm.model.trim()) throw new Error('渠道名称、接口地址和模型不能为空');
+      const saved = await api.createAiChannel(aiChannelForm);
+      setAiChannels(previous => [...previous, saved]);
+      setAiChannelForm(previous => ({ ...previous, name: '', baseUrl: '', model: '', apiKey: '' }));
+      setSaveStatus({ type: 'success', message: 'AI 渠道已保存，密钥已加密存储' });
+    } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道保存失败' }); }
+  };
+  const testAiChannel = async (id: number) => { try { await api.testAiChannel(id); const latest = await api.aiChannels(); setAiChannels(latest); setSaveStatus({ type: 'success', message: 'AI 渠道连接正常' }); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道连接失败' }); } };
+  const removeAiChannel = async (id: number) => { try { await api.deleteAiChannel(id); setAiChannels(previous => previous.filter(item => item.id !== id)); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道删除失败' }); } };
 
   const handleProviderChange = (providerKey: string) => {
     const preset = PROVIDER_PRESETS[providerKey];
@@ -746,6 +761,12 @@ const AdminPanel: React.FC = () => {
                     <Network className="w-5 h-5 text-purple-600 mr-2" />
                     AI 渠道管理 (Channel Management)
                   </h3>
+
+                  <section className="mb-6 rounded-xl border border-[var(--theme-primary-border)] bg-[var(--theme-primary-soft)] p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-[var(--color-primary)]">AI 渠道中心</h4><p className="mt-1 text-xs text-slate-600">支持多渠道、协议适配和故障测试；密钥仅在服务端加密保存。</p></div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[var(--theme-primary)]">{aiChannels.length} 个渠道</span></div>
+                    {aiChannels.length > 0 && <div className="mt-4 space-y-2">{aiChannels.map(channel => <div key={channel.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white bg-white px-3 py-3 text-sm"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${channel.lastStatus === 'UP' ? 'bg-emerald-500' : channel.lastStatus === 'DOWN' ? 'bg-red-500' : 'bg-slate-300'}`} /><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{channel.name} <span className="ml-1 text-xs font-normal text-slate-500">{channel.protocol}</span></p><p className="truncate text-xs text-slate-500">{channel.baseUrl} · {channel.model} · 优先级 {channel.priority}</p></div></div><div className="flex items-center gap-2"><button onClick={() => testAiChannel(channel.id)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-[var(--theme-primary)] hover:text-[var(--theme-primary)]">测试</button><button onClick={() => removeAiChannel(channel.id)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">删除</button></div></div>)}</div>}
+                    <div className="mt-4 grid gap-2 md:grid-cols-2"><input value={aiChannelForm.name} onChange={e => setAiChannelForm({ ...aiChannelForm, name: e.target.value })} placeholder="渠道名称，如：生产 AI 主链路" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><select value={aiChannelForm.protocol} onChange={e => setAiChannelForm({ ...aiChannelForm, protocol: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="OPENAI_COMPATIBLE">OpenAI Compatible</option><option value="ANTHROPIC">Anthropic Messages</option><option value="GEMINI">Google Gemini</option><option value="CUSTOM">Custom</option></select><input value={aiChannelForm.baseUrl} onChange={e => setAiChannelForm({ ...aiChannelForm, baseUrl: e.target.value })} placeholder="Base URL" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono" /><input value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} placeholder="模型名称" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><input type="password" value={aiChannelForm.apiKey} onChange={e => setAiChannelForm({ ...aiChannelForm, apiKey: e.target.value })} placeholder="API Key（仅保存时提交）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono md:col-span-2" /><button onClick={saveAiChannel} className="theme-accent-bg rounded-lg px-4 py-2 text-sm font-semibold md:col-span-2">新增 AI 渠道</button></div>
+                  </section>
                   
                   <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-6">
                      <div className={`flex items-center justify-between rounded-lg border px-4 py-3 ${aiKeyConfigured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
