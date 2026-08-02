@@ -58,7 +58,7 @@ public class SystemSettingsController {
     result.put("logRetentionDays", retentionDays());
     result.put("version", settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L));
     result.put("loginSubtitle", value("login_subtitle", "统一管理生产、售后、资产生命周期与交付风险。"));
-    result.put("loginBackgroundMode", value("login_background_mode", "gradient"));
+    result.put("loginBackgroundMode", value("login_background_mode", "single"));
     result.put("loginBackgroundColor", value("login_background_color", "#0f172a"));
     result.put("loginBackgroundImages", backgroundImages());
     result.put("loginBackgroundIntervalSeconds", boundedInt("login_background_interval", 8, 3, 120));
@@ -74,7 +74,7 @@ public class SystemSettingsController {
   /** Public, non-secret branding payload used by the login shell and app chrome. */
   @GetMapping("/branding")
   public BrandingResponse branding() {
-    return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, ""), settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L), value("login_subtitle", "统一管理生产、售后、资产生命周期与交付风险。"), value("login_background_mode", "gradient"), value("login_background_color", "#0f172a"), backgroundImages(), boundedInt("login_background_interval", 8, 3, 120), boundedInt("login_background_overlay", 58, 0, 90) / 100.0, value("login_background_position", "center"), Map.of("enabled", Boolean.parseBoolean(value("login_captcha_enabled", "true")), "triggerAfterFailures", boundedInt("login_captcha_trigger", 3, 1, 20), "expireSeconds", boundedInt("login_captcha_expire", 120, 30, 900), "maxAttempts", boundedInt("login_captcha_max_attempts", 5, 1, 10)));
+    return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, ""), settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L), value("login_subtitle", "统一管理生产、售后、资产生命周期与交付风险。"), value("login_background_mode", "single"), value("login_background_color", "#0f172a"), backgroundImages(), boundedInt("login_background_interval", 8, 3, 120), boundedInt("login_background_overlay", 58, 0, 90) / 100.0, value("login_background_position", "center"), Map.of("enabled", Boolean.parseBoolean(value("login_captcha_enabled", "true")), "triggerAfterFailures", boundedInt("login_captcha_trigger", 3, 1, 20), "expireSeconds", boundedInt("login_captcha_expire", 120, 30, 900), "maxAttempts", boundedInt("login_captcha_max_attempts", 5, 1, 10)));
   }
 
   @PutMapping
@@ -126,7 +126,7 @@ public class SystemSettingsController {
   }
   private int boundedInt(String key, int fallback, int min, int max) { try { return Math.max(min, Math.min(max, Integer.parseInt(value(key, String.valueOf(fallback))))); } catch (RuntimeException ex) { return fallback; } }
   private List<String> backgroundImages() {
-    var raw = value("login_background_images", "[]");
+    var raw = value("login_background_images", "[\"/login-backgrounds/rog-rise-of-gamers.jpg\"]");
     try { return new ObjectMapper().readValue(raw, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}); }
     catch (Exception ex) { return new ArrayList<>(); }
   }
