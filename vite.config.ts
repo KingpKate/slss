@@ -17,6 +17,10 @@ export default defineConfig(() => {
       },
       build: {
         sourcemap: false,
+        // Route-level chunks (charts/PDF/spreadsheets) must not be requested
+        // by the login shell. They are loaded only when the owning module is
+        // opened or an export action is invoked.
+        modulePreload: false,
         chunkSizeWarningLimit: 500,
         rollupOptions: {
           output: {
