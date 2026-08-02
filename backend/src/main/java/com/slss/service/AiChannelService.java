@@ -45,7 +45,7 @@ public class AiChannelService {
   public Map<String, Object> test(long id) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
-      var response = request(channel, "Reply with OK only.", true);
+      var response = request(channel, "Reply with OK only.", "You are a connectivity test bot.", true);
       channel.setLastStatus("UP"); channel.setLastError(null); channel.setLastTestAt(Instant.now()); channels.save(channel);
       return Map.of("status", "UP", "message", response == null ? "连接成功" : "连接成功", "testedAt", channel.getLastTestAt());
     } catch (Exception ex) {
@@ -69,7 +69,7 @@ public class AiChannelService {
       var pool = candidates.isEmpty() ? fallback : candidates;
       var channel = weightedPick(pool);
       pool.remove(channel);
-      try { return request(channel, prompt, false); }
+      try { return request(channel, prompt, systemPrompt, false); }
       catch (Exception ex) { last = ex; channel.setLastStatus("DOWN"); channel.setLastError(trim(ex.getMessage())); channel.setLastTestAt(Instant.now()); channels.save(channel); }
     }
     throw new IllegalStateException("所有启用的 AI 渠道均不可用：" + trim(last == null ? null : last.getMessage()));
@@ -105,12 +105,21 @@ public class AiChannelService {
     if (create && c.getHeadersJson() == null) c.setHeadersJson("{}"); return c;
   }
   private Map<String, Object> view(AiChannel c) { var m = new LinkedHashMap<String, Object>(); m.put("id", c.getId()); m.put("name", c.getName()); m.put("provider", c.getProvider()); m.put("protocol", c.getProtocol()); m.put("baseUrl", c.getBaseUrl()); m.put("model", c.getModel()); m.put("headers", parse(c.getHeadersJson())); m.put("modelMapping", parse(c.getModelMappingJson())); m.put("enabled", c.isEnabled()); m.put("priority", c.getPriority()); m.put("weight", c.getWeight()); m.put("timeoutMs", c.getTimeoutMs()); m.put("hasApiKey", c.getEncryptedApiKey() != null && !c.getEncryptedApiKey().isBlank()); m.put("apiKeyMasked", mask(c.getEncryptedApiKey())); m.put("lastStatus", c.getLastStatus()); m.put("lastError", c.getLastError()); m.put("lastTestAt", c.getLastTestAt()); m.put("version", c.getVersion()); return m; }
-  private String request(AiChannel c, String prompt, boolean test) {
+  private String request(AiChannel c, String prompt, String systemPrompt, boolean test) {
     String key = decrypt(c.getEncryptedApiKey()); if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
     String base = c.getBaseUrl().replaceAll("/+$", "");
-    if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); return http.post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); }
-    if ("ANTHROPIC".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("model", c.getModel(), "max_tokens", 16, "messages", List.of(Map.of("role", "user", "content", prompt))); return http.post().uri(base + "/v1/messages").headers(h -> { headers(c, h); h.set("x-api-key", key); h.set("anthropic-version", "2023-06-01"); }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); }
-    var body = Map.of("model", c.getModel(), "messages", List.of(Map.of("role", "user", "content", prompt)), "max_tokens", 16); return http.post().uri(base.endsWith("/chat/completions") ? base : base + "/chat/completions").headers(h -> headers(c, h)).header("Authorization", "Bearer " + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class);
+    if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))), "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); var response = http.post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "GEMINI"); }
+    if ("ANTHROPIC".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("system", systemPrompt, "model", c.getModel(), "max_tokens", 1024, "messages", List.of(Map.of("role", "user", "content", prompt))); var response = http.post().uri(base + "/v1/messages").headers(h -> { headers(c, h); h.set("x-api-key", key); h.set("anthropic-version", "2023-06-01"); }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "ANTHROPIC"); }
+    var body = Map.of("model", c.getModel(), "messages", List.of(Map.of("role", "system", "content", systemPrompt), Map.of("role", "user", "content", prompt)), "max_tokens", 1024); var response = http.post().uri(base.endsWith("/chat/completions") ? base : base + "/chat/completions").headers(h -> headers(c, h)).header("Authorization", "Bearer " + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "OPENAI");
+  }
+  private String extractContent(String raw, String protocol) {
+    if (raw == null || raw.isBlank()) return "";
+    try {
+      JsonNode node = json.readTree(raw);
+      if ("GEMINI".equals(protocol)) return node.at("/candidates/0/content/parts/0/text").asText(raw);
+      if ("ANTHROPIC".equals(protocol)) return node.at("/content/0/text").asText(raw);
+      return node.at("/choices/0/message/content").asText(raw);
+    } catch (Exception ignored) { return raw; }
   }
   private void headers(AiChannel c, org.springframework.http.HttpHeaders h) { parse(c.getHeadersJson()).forEach((k, v) -> h.set(k, String.valueOf(v))); }
   private String encrypt(String value) { try { byte[] iv = new byte[12]; random.nextBytes(iv); Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(cryptoKey, "AES"), new GCMParameterSpec(128, iv)); return Base64.getEncoder().encodeToString(iv) + ":" + Base64.getEncoder().encodeToString(cipher.doFinal(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception e) { throw new IllegalStateException("AI 密钥加密失败", e); } }
