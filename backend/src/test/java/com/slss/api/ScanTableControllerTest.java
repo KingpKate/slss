@@ -5,6 +5,7 @@ import com.slss.domain.ScanTableRow;
 import com.slss.domain.ScanTableValue;
 import com.slss.domain.ScanTemplate;
 import com.slss.domain.ScanTemplateField;
+import com.slss.domain.CustomerTenant;
 import com.slss.repository.ScanTableRepository;
 import com.slss.repository.ScanTableValueRepository;
 import com.slss.repository.ScanTemplateFieldRepository;
@@ -170,6 +171,30 @@ class ScanTableControllerTest {
     assertEquals(409, error.getStatusCode().value());
     assertTrue(error.getReason().contains("MACHINE-OTHER"));
     assertTrue(error.getReason().contains("CPU SN"));
+  }
+
+  @Test
+  void listTemplatesOnlyReturnsTenantVisibleTemplates() {
+    var visible = new ScanTemplate();
+    visible.setCustomerName("客户 A"); visible.setModel("A-1");
+    var hidden = new ScanTemplate();
+    hidden.setCustomerName("客户 B"); hidden.setModel("B-1");
+    visible.setTenant(new CustomerTenant());
+    hidden.setTenant(new CustomerTenant());
+    when(templates.findByActiveTrueOrderByCustomerNameAscModelAsc()).thenReturn(List.of(visible, hidden));
+    // TenantScopeService is mocked in setUp: only the visible fixture is allowed.
+    // Replace the default broad matcher with deterministic per-object behavior.
+    var scope = org.mockito.Mockito.mock(TenantScopeService.class);
+    when(scope.canAccess(visible.getTenant())).thenReturn(true);
+    when(scope.canAccess(hidden.getTenant())).thenReturn(false);
+    // A fresh controller is used to keep the test independent from the common fixture.
+    controller = new ScanTableController(templates, tables, scanValues,
+        mock(ScanTemplateFieldRepository.class), mock(AuditService.class), scope);
+
+    var result = controller.listTemplates();
+
+    assertEquals(1, result.size());
+    assertEquals("客户 A", result.get(0).get("customerName"));
   }
 
   private static ScanTemplateField field(String key, String label, String type, boolean required, int order) {
