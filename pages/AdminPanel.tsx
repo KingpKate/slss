@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { UserRole, User, Permission, DatabaseConfig, RedisConfig, SystemStatus } from '../types';
-import { useTheme, THEMES, ThemeColor } from '../components/ThemeContext';
+import { useTheme, THEMES, THEME_SWATCH_COLORS, ThemeColor } from '../components/ThemeContext';
 import { 
   Shield, UserCheck, Settings, Save, Key, Globe, Cpu, AlertCircle, CheckCircle, 
   Database, Activity, Server, HardDrive, Zap, RefreshCw, Lock, Radio, Network,
@@ -971,7 +971,7 @@ const AdminPanel: React.FC = () => {
                            style={systemSettings.theme === t ? { borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-soft)' } : undefined}
                            className={`flex flex-col items-center gap-2 rounded-lg border-2 p-2 transition-all ${systemSettings.theme === t ? '' : 'border-transparent hover:bg-gray-50'}`}
                          >
-                            <div className={`w-8 h-8 rounded-full ${THEMES[t].classes.bg} shadow-sm ring-2 ring-white`}></div>
+                            <div className="h-8 w-8 rounded-full shadow-sm ring-2 ring-white" style={{ backgroundColor: THEME_SWATCH_COLORS[t] }}></div>
                             <span className={`text-xs font-medium ${systemSettings.theme === t ? 'text-gray-900' : 'text-gray-500'}`}>{THEMES[t].name}</span>
                          </button>
                        ))}

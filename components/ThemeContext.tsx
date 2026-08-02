@@ -46,6 +46,17 @@ export const THEMES: Record<ThemeColor, Theme> = {
   }
 };
 
+// Fixed swatch colors for the theme picker. The global stylesheet remaps
+// Tailwind color classes to the active theme, so using bg-blue-600 here would
+// incorrectly make every preview display the currently selected color.
+export const THEME_SWATCH_COLORS: Record<ThemeColor, string> = {
+  blue: '#2563eb',
+  purple: '#7c3aed',
+  green: '#059669',
+  orange: '#ea580c',
+  slate: '#475569',
+};
+
 interface ThemeContextType {
   theme: ThemeColor;
   setTheme: (theme: ThemeColor) => void;
