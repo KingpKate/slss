@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,11 +22,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class SystemStatusController {
   private final DataSource dataSource;
   private final StringRedisTemplate redis;
+  private final String version;
   private final Instant startedAt = Instant.now();
 
-  public SystemStatusController(DataSource dataSource, StringRedisTemplate redis) {
+  public SystemStatusController(DataSource dataSource, StringRedisTemplate redis, @Value("${slss.version:2.1.0}") String version) {
     this.dataSource = dataSource;
     this.redis = redis;
+    this.version = version;
   }
 
   @GetMapping("/status")
@@ -33,7 +36,7 @@ public class SystemStatusController {
   public Map<String, Object> status() {
     var result = new LinkedHashMap<String, Object>();
     result.put("timestamp", Instant.now());
-    result.put("version", "2.1.0");
+    result.put("version", version);
     result.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
     result.put("jvm", jvm());
     result.put("database", database());
@@ -76,7 +79,8 @@ public class SystemStatusController {
     } catch (Exception ex) {
       data.put("status", "unavailable");
       data.put("latencyMs", (System.nanoTime() - started) / 1_000_000L);
-      data.put("error", ex.getMessage() == null ? "数据库连接失败" : ex.getMessage());
+      // Do not expose JDBC URLs, credentials or driver internals to the admin UI.
+      data.put("error", "数据库连接不可用");
     }
     return data;
   }
@@ -84,6 +88,11 @@ public class SystemStatusController {
   private Map<String, Object> redis() {
     var data = new LinkedHashMap<String, Object>();
     long started = System.nanoTime();
+    if (redis == null || redis.getConnectionFactory() == null) {
+      data.put("status", "disabled");
+      data.put("latencyMs", 0L);
+      return data;
+    }
     try (var connection = redis.getConnectionFactory().getConnection()) {
       String pong = connection.ping();
       data.put("status", "PONG".equalsIgnoreCase(pong) ? "connected" : "degraded");
@@ -92,7 +101,7 @@ public class SystemStatusController {
     } catch (Exception ex) {
       data.put("status", "unavailable");
       data.put("latencyMs", (System.nanoTime() - started) / 1_000_000L);
-      data.put("error", ex.getMessage() == null ? "Redis 连接失败" : ex.getMessage());
+      data.put("error", "Redis 连接不可用");
     }
     return data;
   }

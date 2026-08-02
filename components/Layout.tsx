@@ -21,9 +21,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   React.useEffect(() => {
     if (!user) return;
-    Promise.all([api.systemSettings(), api.companyLogo()]).then(([settings, logo]) => {
-      if ((settings as any)?.appName) setAppName((settings as any).appName);
-      if ((logo as any)?.value) setCompanyLogo((logo as any).value);
+    api.branding().then((branding: any) => {
+      if (branding?.appName) setAppName(branding.appName);
+      if (branding?.logo) setCompanyLogo(branding.logo);
       setSystemOnline(true);
     }).catch(() => setSystemOnline(false));
   }, [user?.username]);

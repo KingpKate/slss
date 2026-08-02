@@ -67,7 +67,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     if (!user) return;
-    api.systemSettings().then((settings: any) => {
+    api.branding().then((settings: any) => {
       if (settings?.theme && THEMES[settings.theme as ThemeColor]) {
         setTheme(settings.theme as ThemeColor);
         localStorage.setItem('slss_theme', settings.theme);

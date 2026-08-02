@@ -9,7 +9,7 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
   const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState('');
   const [appName, setAppName] = useState('SLSS MES · 制造运营系统'); const [logo, setLogo] = useState(''); const [submitting, setSubmitting] = useState(false);
-  useEffect(() => { let active = true; Promise.all([api.systemSettings(), api.companyLogo()]).then(([settings, image]) => { if (!active) return; if ((settings as any)?.appName) { setAppName((settings as any).appName); document.title = (settings as any).appName; } if ((image as any)?.value) setLogo((image as any).value); }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; api.branding().then((branding: any) => { if (!active) return; if (branding?.appName) { setAppName(branding.appName); document.title = branding.appName; } if (branding?.logo) setLogo(branding.logo); }).catch(() => undefined); return () => { active = false; }; }, []);
   useEffect(() => { if (user) navigate('/dashboard'); }, [user, navigate]);
   const submit = async (event: React.FormEvent) => { event.preventDefault(); setError(''); setSubmitting(true); try { if (await login(username.trim(), password)) navigate('/dashboard'); else setError(loginError || '用户名或密码错误'); } finally { setSubmitting(false); } };
   return <main className="grid min-h-screen place-items-center bg-[var(--color-background)] p-4"><div className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-[1.05fr_.95fr]">

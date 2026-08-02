@@ -31,7 +31,7 @@ public class PermissionGroupController {
   public record GroupRequest(String code, String name, String description, Boolean enabled, Long version, List<String> permissions, List<Long> userIds) {}
   public record GroupResponse(Long id, String code, String name, String description, boolean enabled, Long version, List<Long> userIds, List<String> permissions) {}
   public record UserGroupsRequest(List<Long> groupIds, List<Long> userIds, Long version) { List<Long> ids(){ return userIds!=null?userIds:(groupIds==null?List.of():groupIds); } }
-  private GroupResponse view(PermissionGroup g) { var memberIds=users.findAll().stream().filter(u->u.getGroups().stream().anyMatch(x->x.getId().equals(g.getId()))).map(User::getId).toList(); return new GroupResponse(g.getId(),g.getCode(),g.getName(),g.getDescription(),g.isEnabled(),g.getVersion(),memberIds,g.getPermissions().stream().map(Permission::getCode).sorted().toList()); }
+  private GroupResponse view(PermissionGroup g) { var memberIds=users.findAllByGroups_Id(g.getId()).stream().map(User::getId).toList(); return new GroupResponse(g.getId(),g.getCode(),g.getName(),g.getDescription(),g.isEnabled(),g.getVersion(),memberIds,g.getPermissions().stream().map(Permission::getCode).sorted().toList()); }
 
   @GetMapping @Transactional(readOnly = true)
   public List<GroupResponse> list() { return groups.findAllByDeletedAtIsNullOrderByNameAsc().stream().map(this::view).toList(); }
@@ -64,20 +64,23 @@ public class PermissionGroupController {
   @PutMapping("/users/{userId}") @Transactional
   public List<GroupResponse> assign(@PathVariable Long userId,@RequestBody UserGroupsRequest r,Principal actor,HttpServletRequest req) {
     var u=users.findById(userId).orElseThrow(); var ids=r.ids();
+    if (ids.stream().anyMatch(java.util.Objects::isNull) || ids.stream().distinct().count()!=ids.size())
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"权限组列表包含重复或无效 ID");
     u.getGroups().clear(); for(Long id:ids) u.getGroups().add(groups.findByIdAndDeletedAtIsNull(id).orElseThrow()); users.save(u);
     audit.record(actor.getName(),"USER_PERMISSION_GROUPS","USER",String.valueOf(userId),ids.toString(),req.getRemoteAddr(),true);
+    permissionCache.bump();
     return u.getGroups().stream().map(this::view).toList();
   }
   @PutMapping("/{id}/permissions") @Transactional
   public GroupResponse permissions(@PathVariable Long id,@RequestBody GroupRequest r,Principal actor,HttpServletRequest req){ var g=groups.findByIdAndDeletedAtIsNull(id).orElseThrow(); checkVersion(g,r.version()); ensureGroupAdminSafety(g,g.isEnabled(),r.permissions()==null?permissionCodes(g):r.permissions(),memberIds(g)); apply(g,r); g.setUpdatedBy(actor.getName()); audit.record(actor.getName(),"PERMISSION_GROUP_PERMISSIONS","PERMISSION_GROUP",String.valueOf(id),String.valueOf(r.permissions()),req.getRemoteAddr(),true); var saved=groups.saveAndFlush(g); permissionCache.bump(); return view(saved); }
   @PutMapping("/{id}/members") @Transactional
-  public GroupResponse members(@PathVariable Long id,@RequestBody UserGroupsRequest r,Principal actor,HttpServletRequest req){ var g=groups.findByIdAndDeletedAtIsNull(id).orElseThrow(); checkVersion(g,r.version()); var ids=r.ids(); ensureGroupAdminSafety(g,g.isEnabled(),permissionCodes(g),new HashSet<>(ids)); users.findAll().forEach(u->{u.getGroups().removeIf(x->x.getId().equals(id)); if(ids.contains(u.getId()))u.getGroups().add(g); users.save(u);}); g.setUpdatedBy(actor.getName()); var saved=groups.saveAndFlush(g); permissionCache.bump(); audit.record(actor.getName(),"PERMISSION_GROUP_MEMBERS","PERMISSION_GROUP",String.valueOf(id),ids.toString(),req.getRemoteAddr(),true); return view(saved); }
+  public GroupResponse members(@PathVariable Long id,@RequestBody UserGroupsRequest r,Principal actor,HttpServletRequest req){ var g=groups.findByIdAndDeletedAtIsNull(id).orElseThrow(); checkVersion(g,r.version()); var ids=r.ids(); if(ids.stream().anyMatch(java.util.Objects::isNull)||ids.stream().distinct().count()!=ids.size()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"成员列表包含重复或无效 ID"); ensureGroupAdminSafety(g,g.isEnabled(),permissionCodes(g),new HashSet<>(ids)); var affected=new java.util.HashSet<>(users.findAllByGroups_Id(id)); if(!ids.isEmpty()) affected.addAll(users.findAllById(ids)); affected.forEach(u->{u.getGroups().removeIf(x->x.getId().equals(id)); if(ids.contains(u.getId()))u.getGroups().add(g);}); users.saveAll(affected); g.setUpdatedBy(actor.getName()); var saved=groups.saveAndFlush(g); permissionCache.bump(); audit.record(actor.getName(),"PERMISSION_GROUP_MEMBERS","PERMISSION_GROUP",String.valueOf(id),ids.toString(),req.getRemoteAddr(),true); return view(saved); }
   @GetMapping("/users/{userId}") @Transactional(readOnly=true)
   public List<GroupResponse> userGroups(@PathVariable Long userId) { return users.findById(userId).orElseThrow().getGroups().stream().filter(x->x.getDeletedAt()==null).map(this::view).toList(); }
 
   private void checkVersion(PermissionGroup g, Long requested) { if (requested != null && !requested.equals(g.getVersion())) throw new ResponseStatusException(HttpStatus.CONFLICT,"权限组已被其他管理员修改，请刷新后再保存"); }
 
-  private Set<Long> memberIds(PermissionGroup g) { return users.findAll().stream().filter(u -> u.getGroups().stream().anyMatch(x -> x.getId().equals(g.getId()))).map(User::getId).collect(java.util.stream.Collectors.toSet()); }
+  private Set<Long> memberIds(PermissionGroup g) { return users.findAllByGroups_Id(g.getId()).stream().map(User::getId).collect(java.util.stream.Collectors.toSet()); }
   private Set<String> permissionCodes(PermissionGroup g) { return g.getPermissions().stream().map(Permission::getCode).collect(java.util.stream.Collectors.toSet()); }
   private boolean hasSystemRole(User u) { return u.getRoles().stream().anyMatch(role -> role.getPermissions().stream().anyMatch(p -> "MANAGE_SYSTEM".equals(p.getCode()))); }
   private boolean hasSystemOutsideGroup(User u, Long groupId) { return hasSystemRole(u) || u.getGroups().stream().filter(x -> !x.getId().equals(groupId) && x.isEnabled() && x.getDeletedAt() == null).anyMatch(x -> x.getPermissions().stream().anyMatch(p -> "MANAGE_SYSTEM".equals(p.getCode()))); }

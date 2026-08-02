@@ -2,7 +2,10 @@ package com.slss.api;
 
 import com.slss.domain.SystemSetting;
 import com.slss.repository.SystemSettingRepository;
+import com.slss.service.AuditService;
 import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +14,9 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
+import java.util.Base64;
+import java.io.ByteArrayInputStream;
+import javax.imageio.ImageIO;
 
 @RestController
 @RequestMapping("/api/v1/settings")
@@ -22,7 +28,13 @@ public class SystemSettingsController {
   private static final String AI_API_KEY = "ai_api_key";
   private static final Set<String> PUBLIC_KEYS = Set.of("app_name", "theme", "maintenance_mode", "log_retention_days");
   private final SystemSettingRepository settings;
-  public SystemSettingsController(SystemSettingRepository settings) { this.settings = settings; }
+  private final AuditService audit;
+  public SystemSettingsController(SystemSettingRepository settings, AuditService audit) { this.settings = settings; this.audit = audit; }
+
+  public record SettingsUpdateRequest(@NotBlank @Size(max=120) String appName,
+      @NotBlank @Pattern(regexp="blue|purple|green|orange|slate") String theme,
+      Boolean maintenanceMode, @NotNull @Min(1) @Max(3650) Integer logRetentionDays) {}
+  public record BrandingResponse(String appName, String theme, String logo) {}
 
   @GetMapping("/company-logo")
   public Map<String, Object> companyLogo() {
@@ -35,27 +47,25 @@ public class SystemSettingsController {
     result.put("appName", value("app_name", "SLSS - 服务器全生命周期系统"));
     result.put("theme", value("theme", "green"));
     result.put("maintenanceMode", Boolean.parseBoolean(value("maintenance_mode", "false")));
-    result.put("logRetentionDays", Integer.parseInt(value("log_retention_days", "90")));
+    result.put("logRetentionDays", retentionDays());
     return result;
+  }
+
+  /** Public, non-secret branding payload used by the login shell and app chrome. */
+  @GetMapping("/branding")
+  public BrandingResponse branding() {
+    return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, ""));
   }
 
   @PutMapping
   @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
   @Transactional
-  public Map<String, Object> updateSettings(@RequestBody Map<String, Object> body) {
-    if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "设置内容不能为空");
-    save("app_name", text(body.get("appName"), 1, 120, "系统名称"));
-    var theme = text(body.get("theme"), 1, 20, "主题");
-    if (!Set.of("blue", "purple", "green", "orange", "slate").contains(theme)) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的系统主题");
-    }
-    save("theme", theme);
-    save("maintenance_mode", String.valueOf(Boolean.TRUE.equals(body.get("maintenanceMode"))));
-    Object retention = body.get("logRetentionDays");
-    int days;
-    try { days = Integer.parseInt(String.valueOf(retention)); } catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "日志保留天数必须为数字"); }
-    if (days < 1 || days > 3650) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "日志保留天数必须在 1-3650 之间");
-    save("log_retention_days", String.valueOf(days));
+  public Map<String, Object> updateSettings(@Valid @RequestBody SettingsUpdateRequest request, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
+    save("app_name", request.appName().trim());
+    save("theme", request.theme());
+    save("maintenance_mode", String.valueOf(Boolean.TRUE.equals(request.maintenanceMode())));
+    save("log_retention_days", String.valueOf(request.logRetentionDays()));
+    audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_SETTINGS_UPDATE", "SYSTEM_SETTINGS", "global", request.toString(), http.getRemoteAddr(), true);
     return getSettings();
   }
 
@@ -71,7 +81,7 @@ public class SystemSettingsController {
   @PutMapping("/ai")
   @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
   @Transactional
-  public Map<String, Object> updateAiSettings(@RequestBody Map<String, String> body) {
+  public Map<String, Object> updateAiSettings(@RequestBody Map<String, String> body, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
     if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AI 配置不能为空");
     var provider = text(body.get("provider"), 1, 30, "AI 渠道");
     if (!Set.of("google", "openai", "deepseek", "zhipu", "modelscope", "custom").contains(provider)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的 AI 渠道");
@@ -82,11 +92,21 @@ public class SystemSettingsController {
     saveRaw(AI_BASE_URL, baseUrl);
     // Empty key means keep the existing secret; the UI never receives the raw value.
     var apiKey = body.get("apiKey");
-    if (apiKey != null && !apiKey.isBlank() && !apiKey.startsWith("••••")) saveRaw(AI_API_KEY, apiKey.trim());
+    if (apiKey != null && !apiKey.isBlank() && !apiKey.startsWith("••••")) {
+      if (apiKey.length() > 500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AI 密钥过长");
+      saveRaw(AI_API_KEY, apiKey.trim());
+    }
+    audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_AI_SETTINGS_UPDATE", "SYSTEM_SETTINGS", "ai", "AI 配置已更新", http.getRemoteAddr(), true);
     return aiSettings();
   }
 
   private String value(String key, String fallback) { return settings.findById(key).map(SystemSetting::getSettingValue).filter(v -> v != null && !v.isBlank()).orElse(fallback); }
+  private int retentionDays() {
+    try {
+      int days = Integer.parseInt(value("log_retention_days", "90"));
+      return days >= 1 && days <= 3650 ? days : 90;
+    } catch (RuntimeException ignored) { return 90; }
+  }
   private void save(String key, String value) {
     if (!PUBLIC_KEYS.contains(key)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不允许修改的系统参数");
     saveRaw(key, value);
@@ -104,13 +124,22 @@ public class SystemSettingsController {
   @PutMapping("/company-logo")
   @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
   @Transactional
-  public Map<String, Object> updateCompanyLogo(@RequestBody Map<String, String> body) {
+  public Map<String, Object> updateCompanyLogo(@RequestBody Map<String, String> body, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
     var value = body == null ? null : body.get("value");
     if (value == null || value.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 内容不能为空");
-    if (!value.startsWith("data:image/")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持图片 LOGO");
-    if (value.length() > 3_000_000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 文件过大");
+    var match = java.util.regex.Pattern.compile("^data:image/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/=]+)$").matcher(value);
+    if (!match.matches()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持 PNG/JPEG/GIF/WEBP 图片 LOGO，不支持 SVG");
+    final byte[] bytes;
+    try { bytes = Base64.getDecoder().decode(match.group(2)); }
+    catch (IllegalArgumentException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 编码无效"); }
+    if (bytes.length == 0 || bytes.length > 2_000_000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 文件大小须在 1B-2MB 之间");
+    try {
+      var image = ImageIO.read(new ByteArrayInputStream(bytes));
+      if (image == null || image.getWidth() > 4096 || image.getHeight() > 4096) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 图片格式或尺寸无效");
+    } catch (java.io.IOException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 图片无法解析"); }
     var setting = settings.findById(COMPANY_LOGO).orElseGet(() -> { var item = new SystemSetting(); item.setSettingKey(COMPANY_LOGO); return item; });
     setting.setSettingValue(value); setting.setUpdatedAt(Instant.now()); settings.save(setting);
+    audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_BRANDING_LOGO_UPDATE", "SYSTEM_SETTINGS", COMPANY_LOGO, "logo updated", http.getRemoteAddr(), true);
     return Map.of("value", value, "updatedAt", setting.getUpdatedAt());
   }
 }

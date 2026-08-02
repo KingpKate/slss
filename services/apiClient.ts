@@ -139,6 +139,7 @@ export const api = {
   health: () => request<{ status: string }>('/health'),
   systemStatus: () => request<any>('/system/status'),
   systemSettings: () => request<any>('/settings'),
+  branding: () => request<{ appName: string; theme: string; logo?: string }>('/settings/branding'),
   updateSystemSettings: (payload: any) => request<any>('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   aiSettings: () => request<any>('/settings/ai'),
   updateAiSettings: (payload: any) => request<any>('/settings/ai', { method: 'PUT', body: JSON.stringify(payload) }),

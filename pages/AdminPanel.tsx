@@ -326,7 +326,7 @@ const AdminPanel: React.FC = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type)) { setSaveStatus({ type: 'error', message: 'Logo 仅支持 PNG、JPG、SVG 或 WebP' }); return; }
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { setSaveStatus({ type: 'error', message: 'Logo 仅支持 PNG、JPG、GIF 或 WebP' }); return; }
     if (file.size > 2 * 1024 * 1024) { setSaveStatus({ type: 'error', message: 'Logo 文件不能超过 2MB' }); return; }
     const image = new Image(); const url = URL.createObjectURL(file);
     image.onload = async () => {
@@ -1033,7 +1033,7 @@ const AdminPanel: React.FC = () => {
                   </div>
                   
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center justify-between gap-4"><div><h4 className="font-semibold text-slate-900">公司 Logo</h4><p className="mt-1 text-xs text-slate-500">建议 128-2048px 宽、32-1024px 高，PNG/JPG/SVG/WebP，最大 2MB。</p></div><input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleLogoImport}/><button onClick={()=>logoInputRef.current?.click()} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">选择并保存 Logo</button></div>
+                    <div className="flex items-center justify-between gap-4"><div><h4 className="font-semibold text-slate-900">公司 Logo</h4><p className="mt-1 text-xs text-slate-500">建议 128-2048px 宽、32-1024px 高，PNG/JPG/GIF/WebP，最大 2MB；SVG 为安全原因不支持。</p></div><input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={handleLogoImport}/><button onClick={()=>logoInputRef.current?.click()} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">选择并保存 Logo</button></div>
                     {logoValue && <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3"><img src={logoValue} alt="当前公司 Logo" className="h-14 max-w-[240px] object-contain"/></div>}
                   </div>
                   <div className="pt-4 border-t border-gray-200"><button onClick={saveSystemSettings} className={`${themeConfig.classes.bg} ${themeConfig.classes.bgHover} text-white px-5 py-2 rounded text-sm shadow-sm`}><Save className="mr-2 inline h-4 w-4"/>保存基础设置</button><span className="ml-3 text-xs text-slate-500">主题、系统名称、维护模式和日志保留天数将同步到所有账号。</span></div>
