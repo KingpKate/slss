@@ -97,7 +97,7 @@ export const api = {
   login: (username: string, password: string, captcha?: { token?: string; answer?: string }) =>
     request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password, captchaToken: captcha?.token, captchaAnswer: captcha?.answer }) }),
   captchaStatus: (username: string) => request<{ required: boolean; failedAttempts?: number; threshold?: number }>(`/auth/captcha/status?username=${encodeURIComponent(username)}`),
-  captchaChallenge: (username: string) => request<{ token: string; image?: string; question?: string; expiresAt?: string }>('/auth/captcha/challenge', { method: 'POST', body: JSON.stringify({ username }) }),
+  captchaChallenge: (username: string) => request<{ token: string; image?: string; question?: string; expiresAt?: string; expiresInSeconds?: number }>('/auth/captcha/challenge', { method: 'POST', body: JSON.stringify({ username }) }),
   refreshSession: () => request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/refresh', { method: 'POST' }),
   currentSession: () => request<{ token: null; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
