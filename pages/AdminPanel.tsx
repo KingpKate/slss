@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import { ROLE_LABELS, PERMISSION_LABELS } from '../constants';
 import { api } from '../services/apiClient';
+import { AdminDomainCard } from '../components/admin/AdminDomainCard';
+import { AdminPagination } from '../components/admin/AdminPagination';
+import { PermissionSourceSummary } from '../components/admin/PermissionSourceSummary';
 
 // All administrative data is now loaded from the Spring API; this constant is
 // kept only for backwards-compatible render guards in legacy markup.
@@ -609,10 +612,10 @@ const AdminPanel: React.FC = () => {
                     {[['用户', adminOverview.counts?.users], ['权限组', adminOverview.counts?.permissionGroups], ['租户', adminOverview.counts?.tenants], ['AI 渠道', adminOverview.counts?.aiChannels], ['启用渠道', adminOverview.counts?.enabledAiChannels]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-semibold text-slate-900">{value ?? '—'}</p></div>)}
                   </div>
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <button onClick={() => setActiveTab('database')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">连接与依赖</p><p className="mt-1 text-sm text-slate-500">查看 MySQL、Redis 与运行时健康状态</p></button>
-                    <button onClick={() => setActiveTab('users')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">身份与权限</p><p className="mt-1 text-sm text-slate-500">管理用户、权限组、租户和授权审计</p></button>
-                    <button onClick={() => setActiveTab('ai')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">AI 智能网关</p><p className="mt-1 text-sm text-slate-500">配置渠道、模型发现与连通性测试</p></button>
-                    <button onClick={() => setActiveTab('general')} className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--theme-primary-border)]"><p className="text-sm font-semibold text-slate-900">品牌与系统参数</p><p className="mt-1 text-sm text-slate-500">统一维护系统名称、主题外观与 Logo</p></button>
+                    <AdminDomainCard icon={Database} title="连接与依赖" description="查看 MySQL、Redis 与运行时健康状态" onOpen={() => setActiveTab('database')} />
+                    <AdminDomainCard icon={Shield} title="身份与权限" description="管理用户、权限组、租户和授权审计" value={adminOverview.counts?.users} onOpen={() => setActiveTab('users')} />
+                    <AdminDomainCard icon={Network} title="AI 智能网关" description="配置渠道、模型发现与连通性测试" value={adminOverview.counts?.enabledAiChannels} onOpen={() => setActiveTab('ai')} />
+                    <AdminDomainCard icon={Palette} title="品牌与系统参数" description="统一维护系统名称、主题外观与 Logo" onOpen={() => setActiveTab('general')} />
                   </div>
                 </>}
               </div>
@@ -787,7 +790,7 @@ const AdminPanel: React.FC = () => {
                      </button>
                    </div>
                 </div>
-                {!USE_MOCK_DATA && <div className="mt-8"><div className="flex justify-between mb-3"><h3 className="font-semibold">安全审计日志</h3><input value={auditAction} onChange={e=>{setAuditAction(e.target.value);setAuditPage(0);}} placeholder="按操作类型筛选" className="border rounded px-2 py-1 text-sm"/></div><div className="overflow-x-auto border rounded"><table className="min-w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">时间</th><th className="p-2 text-left">用户</th><th className="p-2 text-left">操作</th><th className="p-2 text-left">目标</th><th className="p-2 text-left">结果</th><th className="p-2 text-left">详情</th></tr></thead><tbody>{auditRows.map(r=><tr key={r.id} className="border-t"><td className="p-2">{new Date(r.createdAt).toLocaleString()}</td><td className="p-2">{r.actor||'system'}</td><td className="p-2">{r.action}</td><td className="p-2">{r.targetType}:{r.targetId}</td><td className={`p-2 ${r.success?'text-green-600':'text-red-600'}`}>{r.success?'成功':'失败'}</td><td className="p-2">{r.details||'-'}</td></tr>)}</tbody></table></div><div className="flex justify-end gap-2 mt-3"><button disabled={auditPage===0} onClick={()=>setAuditPage(p=>p-1)} className="border px-3 py-1 rounded disabled:opacity-40">上一页</button><span>{auditPage+1}/{Math.max(auditTotalPages,1)}</span><button disabled={auditPage+1>=auditTotalPages} onClick={()=>setAuditPage(p=>p+1)} className="border px-3 py-1 rounded disabled:opacity-40">下一页</button></div></div>}
+                {!USE_MOCK_DATA && <div className="mt-8"><div className="flex justify-between mb-3"><h3 className="font-semibold">安全审计日志</h3><input value={auditAction} onChange={e=>{setAuditAction(e.target.value);setAuditPage(0);}} placeholder="按操作类型筛选" className="border rounded px-2 py-1 text-sm"/></div><div className="overflow-x-auto border rounded"><table className="min-w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">时间</th><th className="p-2 text-left">用户</th><th className="p-2 text-left">操作</th><th className="p-2 text-left">目标</th><th className="p-2 text-left">结果</th><th className="p-2 text-left">详情</th></tr></thead><tbody>{auditRows.map(r=><tr key={r.id} className="border-t"><td className="p-2">{new Date(r.createdAt).toLocaleString()}</td><td className="p-2">{r.actor||'system'}</td><td className="p-2">{r.action}</td><td className="p-2">{r.targetType}:{r.targetId}</td><td className={`p-2 ${r.success?'text-green-600':'text-red-600'}`}>{r.success?'成功':'失败'}</td><td className="p-2">{r.details||'-'}</td></tr>)}</tbody></table></div><AdminPagination page={auditPage} totalPages={auditTotalPages} onPageChange={setAuditPage} label="审计日志" /></div>}
                 {!USE_MOCK_DATA && <div className="mt-8 rounded-xl border border-violet-200 bg-violet-50 p-5"><div className="flex items-center justify-between"><div><h3 className="font-semibold text-violet-900">权限变更审批</h3><p className="mt-1 text-xs text-violet-700">审批通过后才会写入 DENY/ALLOW 覆盖规则，所有操作都会进入审计日志。</p></div><span className="rounded-full bg-white px-2 py-1 text-xs text-violet-700">待处理 {permissionApprovals.length}</span></div>{permissionApprovals.length===0?<p className="mt-4 text-xs text-violet-600">暂无待处理审批</p>:<div className="mt-4 space-y-2">{permissionApprovals.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-white p-3 text-xs"><div><b>{item.requestedBy}</b> 请求 {item.changeType} · {item.targetType}#{item.targetId}<div className="mt-1 text-slate-500">{item.payloadJson}</div></div><div className="flex gap-2"><button onClick={async()=>{try{await api.reviewPermissionApproval(item.id,{decision:'APPROVED',comment:''});setPermissionApprovals(v=>v.filter(x=>x.id!==item.id));}catch(e:any){setAdminError(e.message);}}} className="rounded bg-emerald-600 px-2 py-1 text-white">批准</button><button onClick={async()=>{try{await api.reviewPermissionApproval(item.id,{decision:'REJECTED',comment:''});setPermissionApprovals(v=>v.filter(x=>x.id!==item.id));}catch(e:any){setAdminError(e.message);}}} className="rounded bg-rose-600 px-2 py-1 text-white">拒绝</button></div></div>)}</div>}</div>}
               </div>
             )}
@@ -886,7 +889,7 @@ const AdminPanel: React.FC = () => {
                            <td className="px-4 py-4 text-sm font-medium text-gray-900 sticky left-0 bg-white hover:bg-gray-50 z-10 border-r border-gray-100 shadow-sm">
                              {u.username}
                              <div className="text-xs text-gray-400 font-normal">{ROLE_LABELS[u.role] || u.role}</div>
-                             <div className="mt-1 flex flex-wrap gap-1"><span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">角色继承</span><span className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700">个人授权</span>{(u.permissionGroupIds || []).map(groupId => { const group = permissionGroups.find(item => item.id === groupId); return <span key={groupId} className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">群组：{group?.name || `#${groupId}`}</span>; })}</div>
+                             <PermissionSourceSummary role={ROLE_LABELS[u.role] || u.role} personalCount={(u.personalPermissions || []).length} effectiveCount={(u.permissions || []).length} groupNames={(u.permissionGroupIds || []).map(groupId => permissionGroups.find(item => item.id === groupId)?.name || `#${groupId}`)} compact />
                              {!USE_MOCK_DATA && tenants.length>0 && <div className="mt-1 flex flex-wrap gap-1">{tenants.map(t=><button key={t.id} onClick={()=>bindTenant(u.id,t.id)} className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-700">绑定 {t.tenantCode}</button>)}</div>}
                            </td>
                            
@@ -918,7 +921,7 @@ const AdminPanel: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-                <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={userPage===0} onClick={()=>setUserPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{userPage+1}/{Math.max(userTotalPages,1)}</span><button disabled={userPage+1>=userTotalPages} onClick={()=>setUserPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
+                  <AdminPagination page={userPage} totalPages={userTotalPages} onPageChange={setUserPage} label="用户" />
                 </>
                 )}
                 {!USE_MOCK_DATA && <div className="mt-8">
@@ -927,7 +930,7 @@ const AdminPanel: React.FC = () => {
                     <table className="min-w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">用户</th><th className="p-3 text-left">设备</th><th className="p-3 text-left">IP</th><th className="p-3 text-left">创建/到期</th><th className="p-3 text-left">状态</th><th className="p-3">操作</th></tr></thead>
                     <tbody>{sessions.map(s=><tr key={s.id} className="border-t"><td className="p-3">{s.username}</td><td className="p-3 max-w-xs truncate" title={s.userAgent}>{s.userAgent||'未知设备'}</td><td className="p-3 font-mono">{s.ipAddress||'-'}</td><td className="p-3 text-xs">{new Date(s.createdAt).toLocaleString()}<br/>{new Date(s.expiresAt).toLocaleString()}</td><td className="p-3">{s.revoked?<span className="text-gray-400">已撤销</span>:<span className="text-green-600">有效</span>}</td><td className="p-3 text-center space-x-2">{!s.revoked&&<button onClick={()=>revokeSession(s.id)} className="text-red-600">撤销</button>}<button onClick={()=>revokeUserSessions(s.username)} className="text-orange-600">撤销该用户全部</button></td></tr>)}</tbody></table>
                   </div>
-                  <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={sessionPage===0} onClick={()=>setSessionPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{sessionPage+1}/{Math.max(sessionTotalPages,1)}</span><button disabled={sessionPage+1>=sessionTotalPages} onClick={()=>setSessionPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
+                  <AdminPagination page={sessionPage} totalPages={sessionTotalPages} onPageChange={setSessionPage} label="会话" />
                 </div>}
                 {!USE_MOCK_DATA && <div className="mt-8 rounded-xl border border-cyan-200 bg-cyan-50 p-5">
                   <h3 className="text-lg font-medium text-slate-900">客户租户与资产归属</h3>
@@ -938,7 +941,7 @@ const AdminPanel: React.FC = () => {
                   </div>
                   <div className="mt-4 flex gap-2"><input value={tenantAsset} onChange={e=>setTenantAsset(e.target.value)} placeholder="历史资产 SN" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"/>{tenants.map(t=><button key={t.id} onClick={()=>migrateAsset(t.id)} disabled={!tenantAsset} className="rounded-lg border border-cyan-700 px-3 py-2 text-xs text-cyan-800">迁移至 {t.tenantName}</button>)}</div>
                   <div className="mt-4 flex flex-wrap gap-2">{tenants.map(t=><span key={t.id} className="rounded-full bg-white px-3 py-1 text-xs text-slate-700">{t.tenantCode} · {t.tenantName}</span>)}</div>
-                  <div className="mt-3 flex items-center justify-end gap-3 text-xs text-slate-600"><button disabled={tenantPage===0} onClick={()=>setTenantPage(p=>p-1)} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{tenantPage+1}/{Math.max(tenantTotalPages,1)}</span><button disabled={tenantPage+1>=tenantTotalPages} onClick={()=>setTenantPage(p=>p+1)} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
+                  <AdminPagination page={tenantPage} totalPages={tenantTotalPages} onPageChange={setTenantPage} label="租户" />
                 </div>}
               </div>
             )}
