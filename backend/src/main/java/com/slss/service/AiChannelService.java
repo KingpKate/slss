@@ -45,6 +45,16 @@ public class AiChannelService {
   public Map<String, Object> test(long id) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
+      // Model discovery is part of the connectivity test.  A newly created
+      // OpenAI-compatible channel commonly has no model configured yet; do
+      // not fail with a misleading 409 in that case. Discover the remote
+      // catalog, persist a deterministic first model, then perform the test
+      // request using the persisted channel configuration.
+      ensureModel(channel);
+      // Reload the managed entity so subsequent status updates include the
+      // model selected by ensureModel even when the repository implementation
+      // returns a detached instance in a non-transactional request.
+      channel = channels.findById(id).orElse(channel);
       var response = request(channel, "Reply with OK only.", "You are a connectivity test bot.", true);
       channel.setLastStatus("UP"); channel.setLastError(null); channel.setLastTestAt(Instant.now()); channels.save(channel);
       return Map.of("status", "UP", "message", response == null ? "连接成功" : "连接成功", "testedAt", channel.getLastTestAt());
@@ -69,7 +79,10 @@ public class AiChannelService {
       var pool = candidates.isEmpty() ? fallback : candidates;
       var channel = weightedPick(pool);
       pool.remove(channel);
-      try { return request(channel, prompt, systemPrompt, false); }
+      try {
+        ensureModel(channel);
+        return request(channel, prompt, systemPrompt, false);
+      }
       catch (Exception ex) { last = ex; channel.setLastStatus("DOWN"); channel.setLastError(trim(ex.getMessage())); channel.setLastTestAt(Instant.now()); channels.save(channel); }
     }
     throw new IllegalStateException("所有启用的 AI 渠道均不可用：" + trim(last == null ? null : last.getMessage()));
@@ -82,27 +95,46 @@ public class AiChannelService {
     return pool.get(pool.size() - 1);
   }
 
+  private void ensureModel(AiChannel channel) {
+    if (channel.getModel() != null && !channel.getModel().isBlank()) return;
+    var discovered = discoverModelIds(channel);
+    if (discovered.isEmpty()) throw new IllegalStateException("远端未返回可用模型，请检查接口地址、API Key 或模型权限");
+    channel.setModel(discovered.get(0));
+    channels.save(channel);
+  }
+
   public Map<String, Object> models(long id) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
-      if ("ANTHROPIC".equalsIgnoreCase(channel.getProtocol())) return Map.of("models", List.of(channel.getModel()), "source", "configured", "message", "Anthropic 官方接口不提供模型目录，使用渠道配置模型");
-      var base = channel.getBaseUrl().replaceAll("/+$", "");
-      JsonNode data;
-      if ("GEMINI".equalsIgnoreCase(channel.getProtocol())) {
-        String key = decrypt(channel.getEncryptedApiKey());
-        if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
-        data = http.get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
-      } else {
-        String key = decrypt(channel.getEncryptedApiKey());
-        if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
-        data = http.get().uri(base + "/models").headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class);
+      if ("ANTHROPIC".equalsIgnoreCase(channel.getProtocol())) {
+        var configured = channel.getModel() == null || channel.getModel().isBlank() ? List.<String>of() : List.of(channel.getModel());
+        return Map.of("models", configured, "source", "configured", "message", "Anthropic 官方接口不提供模型目录，请在渠道中配置模型");
       }
-      final var discovered = new ArrayList<String>();
-      if (data != null && data.path("data").isArray()) data.path("data").forEach(n -> { String modelId = n.path("id").asText(""); if (!modelId.isBlank()) discovered.add(modelId); });
-      if (data != null && data.path("models").isArray()) data.path("models").forEach(n -> { String name = n.path("name").asText(""); if (name.isBlank()) name = n.path("id").asText(""); if (name.startsWith("models/")) name = name.substring(7); if (!name.isBlank()) discovered.add(name); });
-      var result = new ArrayList<>(new LinkedHashSet<>(discovered));
-      return Map.of("models", result.isEmpty() ? List.of(channel.getModel()) : result, "source", "remote");
+      var result = discoverModelIds(channel);
+      return Map.of("models", result, "source", "remote", "selectedModel", channel.getModel() == null ? "" : channel.getModel());
     } catch (Exception ex) { throw new IllegalStateException("模型发现失败：" + trim(ex.getMessage()), ex); }
+  }
+
+  /** Fetch and normalize the model catalog for a channel. */
+  private List<String> discoverModelIds(AiChannel channel) {
+    var base = channel.getBaseUrl().replaceAll("/+$", "");
+    String key = decrypt(channel.getEncryptedApiKey());
+    if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
+    JsonNode data;
+    if ("GEMINI".equalsIgnoreCase(channel.getProtocol())) {
+      data = http.get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
+    } else {
+      data = http.get().uri(base + "/models").headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class);
+    }
+    final var discovered = new ArrayList<String>();
+    if (data != null && data.path("data").isArray()) data.path("data").forEach(n -> {
+      String modelId = n.path("id").asText(""); if (!modelId.isBlank()) discovered.add(modelId);
+    });
+    if (data != null && data.path("models").isArray()) data.path("models").forEach(n -> {
+      String name = n.path("name").asText(""); if (name.isBlank()) name = n.path("id").asText("");
+      if (name.startsWith("models/")) name = name.substring(7); if (!name.isBlank()) discovered.add(name);
+    });
+    return new ArrayList<>(new LinkedHashSet<>(discovered));
   }
 
   private AiChannel fill(AiChannel c, Map<String, Object> b, boolean create) {
