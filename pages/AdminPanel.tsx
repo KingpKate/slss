@@ -521,7 +521,7 @@ const AdminPanel: React.FC = () => {
   });
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 min-h-[calc(100vh-100px)]">
+    <div className="slss-admin-page flex flex-col gap-6 md:flex-row min-h-[calc(100vh-100px)]">
       
       {/* Sidebar Settings Menu */}
       <div className="w-full md:w-64 flex-shrink-0">

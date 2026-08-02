@@ -192,7 +192,7 @@ const ServiceOrders: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6 h-[calc(100vh-6rem)] flex flex-col">
+    <div className="slss-orders-page space-y-6 h-[calc(100vh-6rem)] flex flex-col">
       {loadError && <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{loadError}</span><button onClick={() => { setLoadError(null); afterSalesApi.listOrders().then(data => setOrders(data as RepairOrder[])).catch(err => setLoadError(err?.message || '加载售后工单失败')); }} className="underline">重试</button></div>}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <h1 className="text-2xl font-bold text-gray-900">售后服务工单</h1>
