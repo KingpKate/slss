@@ -334,7 +334,7 @@ const AdminPanel: React.FC = () => {
     const files = Array.from(event.target.files || []); event.target.value = '';
     if (!files.length) return;
     if (files.some(file => !/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 5 * 1024 * 1024)) { setSaveStatus({ type: 'error', message: '背景仅支持 PNG/JPG/WebP，单张不超过 5MB' }); return; }
-    Promise.all(files.map(file => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = reject; reader.readAsDataURL(file); }))).then(values => setSystemSettings(previous => ({ ...previous, loginBackgroundImages: [...previous.loginBackgroundImages, ...values] }))).catch(() => setSaveStatus({ type: 'error', message: '背景图片读取失败' }));
+    Promise.all(files.map(file => api.uploadLoginBackground(file))).then(values => setSystemSettings(previous => ({ ...previous, loginBackgroundImages: [...previous.loginBackgroundImages, ...values.map(value => value.url)] }))).then(() => setSaveStatus({ type: 'success', message: '登录背景已上传，请保存基础设置使其生效' })).catch((e: any) => setSaveStatus({ type: 'error', message: e?.message || '背景图片上传失败' }));
   };
 
   const handleLogoImport = async (event: React.ChangeEvent<HTMLInputElement>) => {

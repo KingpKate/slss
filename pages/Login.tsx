@@ -52,6 +52,11 @@ const Login: React.FC = () => {
       setBranding(next);
       if (next.appName) document.title = next.appName;
     }).catch(() => undefined);
+    api.loginBackgroundAssets().then((assets: any[]) => {
+      if (!active || !assets?.length) return;
+      const deployed = typeof window === 'undefined' ? '' : window.location.pathname.split('/').slice(0, 2).join('/');
+      setBranding(current => ({ ...current, backgroundImages: assets.map(asset => asset.url?.startsWith('http') ? asset.url : `${deployed}${asset.url || ''}`) }));
+    }).catch(() => undefined);
     return () => { active = false; };
   }, []);
 
