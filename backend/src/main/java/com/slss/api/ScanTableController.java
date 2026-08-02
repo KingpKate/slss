@@ -11,6 +11,8 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 import java.time.Instant;
 import java.util.*;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 @RestController @RequestMapping("/api/v1/scan")
 @PreAuthorize("hasAnyAuthority('PERM_CREATE_SCAN_TABLE','PERM_VIEW_PRODUCTION','PERM_MANAGE_PRODUCTION','PERM_MANAGE_SCAN_TEMPLATE')")
@@ -26,6 +28,7 @@ public class ScanTableController {
  private boolean hasAuthority(String code){var a=SecurityContextHolder.getContext().getAuthentication();return a!=null&&a.getAuthorities().stream().anyMatch(x->x.getAuthority().equals(code));}
  private void requireScanOperator(){if(!hasAuthority("PERM_OPERATE_SCAN")&&!hasAuthority("PERM_CREATE_SCAN_TABLE")&&!hasAuthority("PERM_MANAGE_PRODUCTION"))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"缺少扫码录入权限 OPERATE_SCAN");}
  @GetMapping("/templates") @Transactional public List<Map<String,Object>> listTemplates(){return templates.findByActiveTrueOrderByCustomerNameAscModelAsc().stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::templateDto).toList();}
+ @GetMapping("/templates/page") @Transactional public Map<String,Object> listTemplatesPage(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){var p=templates.findByActiveTrue(PageRequest.of(Math.max(0,page),Math.min(Math.max(size,1),100),Sort.by(Sort.Direction.ASC,"customerName","model")));var content=p.getContent().stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::templateDto).toList();return pageDto(content,p.getNumber(),p.getSize(),p.getTotalElements(),p.getTotalPages());}
  @PostMapping("/templates") @PreAuthorize("hasAuthority('PERM_MANAGE_SCAN_TEMPLATE')") @Transactional public Map<String,Object> createTemplate(@RequestBody TemplateRequest r){
    if(r.customerName()==null||r.customerName().isBlank()||r.model()==null||r.model().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"客户名称和整机型号不能为空");
    if(templates.findByActiveTrueAndCustomerNameIgnoreCaseAndModelIgnoreCase(r.customerName().trim(),r.model().trim()).isPresent()) throw new ResponseStatusException(HttpStatus.CONFLICT,"同一客户下整机型号不能重复");
@@ -56,6 +59,7 @@ public class ScanTableController {
  @GetMapping("/tables") @Transactional public List<Map<String,Object>> listTables(){
    return tables.findByStatusOrderByCreatedAtDesc("OPEN").stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::tableDto).toList();
  }
+ @GetMapping("/tables/page") @Transactional public Map<String,Object> listTablesPage(@RequestParam(defaultValue="OPEN") String status,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){var p=tables.findByStatus(status,PageRequest.of(Math.max(0,page),Math.min(Math.max(size,1),100),Sort.by(Sort.Direction.DESC,"createdAt")));var content=p.getContent().stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::tableDto).toList();return pageDto(content,p.getNumber(),p.getSize(),p.getTotalElements(),p.getTotalPages());}
  @GetMapping("/tables/all") @Transactional public List<Map<String,Object>> listAllTables(){
    return tables.findAll().stream().filter(t->tenantScope.canAccess(t.getTenant())).sorted(Comparator.comparing(ScanTable::getCreatedAt,Comparator.nullsLast(Comparator.reverseOrder()))).map(t->tableDto(t,true)).toList();
  }
@@ -73,10 +77,12 @@ public class ScanTableController {
      table.getRows().add(row);
    } return tableDto(tables.save(table));
  }
- @PutMapping("/tables/{id}/rows/{rowNumber}") @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION')") @Transactional public Map<String,Object> saveRow(@PathVariable Long id,@PathVariable int rowNumber,@RequestBody List<Value> values){
+ @PutMapping("/tables/{id}/rows/{rowNumber}") @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION')") @Transactional public Map<String,Object> saveRow(@PathVariable Long id,@PathVariable int rowNumber,@RequestParam(required=false) Long version,@RequestBody List<Value> values){
    requireScanOperator();
    var table=tables.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在")); tenantScope.requireAccess(table.getTenant());
    var row=table.getRows().stream().filter(x->x.getRowNumber()==rowNumber).findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码行不存在"));
+   requireVersion(row,version);
+   if("CANCELLED".equals(row.getStatus())||"COMPLETED".equals(row.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT,"当前扫码行已结束，不能继续修改");
    if("COMPLETED".equals(row.getStatus())&&!hasAuthority("PERM_FORCE_EDIT_COMPLETED_SCAN"))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"已完工行不允许修改，需 PERM_FORCE_EDIT_COMPLETED_SCAN 权限");
    var allowed=allowedFieldKeys(table);
    if(values==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"扫码数据不能为空");
@@ -105,6 +111,7 @@ public class ScanTableController {
    }
    var byKey=new HashMap<String,ScanTableValue>();row.getValues().forEach(x->byKey.put(x.getFieldKey(),x));
    for(var v:values){if(v==null||v.fieldKey()==null||v.fieldKey().isBlank())continue;var x=byKey.computeIfAbsent(v.fieldKey(),k->{var n=new ScanTableValue();n.setRow(row);n.setFieldKey(k);row.getValues().add(n);return n;});var value=Optional.ofNullable(v.value()).orElse("").trim();var field=fieldDefinition(table,v.fieldKey());var isSn=field.sn();x.setFieldValue(value);x.setOperatorNo(isSn&& !value.isBlank()?actor():null);x.setScannedAt(isSn&& !value.isBlank()?Instant.now():null);if(field.machine()&&isSn)row.setMachineSn(value.isBlank()?null:value);}
+   if(!values.isEmpty() && "OPEN".equals(row.getStatus())) row.setStatus("IN_PROGRESS");
    return tableDto(tables.save(table));
  }
 
@@ -159,10 +166,12 @@ public class ScanTableController {
    if(defs.stream().anyMatch(x->x.startsWith(f.key()+"|")))throw new ResponseStatusException(HttpStatus.CONFLICT,"列已存在");
    defs.add(f.key()+"|"+f.label().replace("|","/")+"|"+Optional.ofNullable(f.afterKey()).orElse("").replace("|","")+"|"+Optional.ofNullable(f.type()).orElse("TEXT"));table.setCustomFieldDefs(String.join("\n",defs));return tableDto(tables.save(table));
  }
- @PostMapping("/tables/{id}/rows/{rowNumber}/complete") @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION')") @Transactional public Map<String,Object> completeRow(@PathVariable Long id,@PathVariable int rowNumber){
+ @PostMapping("/tables/{id}/rows/{rowNumber}/complete") @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION')") @Transactional public Map<String,Object> completeRow(@PathVariable Long id,@PathVariable int rowNumber,@RequestParam(required=false) Long version){
    requireScanOperator();
    var table=tables.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在")); tenantScope.requireAccess(table.getTenant());
    var row=table.getRows().stream().filter(x->x.getRowNumber()==rowNumber).findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码行不存在"));
+   requireVersion(row,version);
+   if("COMPLETED".equals(row.getStatus())||"CANCELLED".equals(row.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT,"扫码行已处于结束状态");
    var hidden=table.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(table.getHiddenFieldKeys().split(",")));
    var required=table.getTemplate().getFields().stream().filter(f->!hidden.contains(f.getFieldKey())).filter(ScanTemplateField::isRequired).map(ScanTemplateField::getFieldKey).toList();
    var missing=required.stream().filter(k->{
@@ -171,8 +180,9 @@ public class ScanTableController {
      return row.getValues().stream().noneMatch(v->k.equals(v.getFieldKey())&&v.getFieldValue()!=null&&!v.getFieldValue().isBlank());
    }).toList();
    if(!missing.isEmpty()&&!hasAuthority("PERM_FORCE_COMPLETE_SCAN"))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"必填项尚未全部录入，强制完工需 PERM_FORCE_COMPLETE_SCAN 权限："+String.join("、",missing));
-   row.setStatus("COMPLETED");row.setCompletedBy(actor());row.setCompletedAt(Instant.now());if(table.getRows().stream().allMatch(x->"COMPLETED".equals(x.getStatus())))table.setStatus("COMPLETED");return tableDto(tables.save(table));
+   row.setStatus("COMPLETED");row.setCompletedBy(actor());row.setCompletedAt(Instant.now());if(table.getRows().stream().allMatch(x->"COMPLETED".equals(x.getStatus())||"CANCELLED".equals(x.getStatus())))table.setStatus("COMPLETED");return tableDto(tables.save(table));
  }
+ @PostMapping("/tables/{id}/rows/{rowNumber}/cancel") @PreAuthorize("hasAnyAuthority('PERM_MANAGE_PRODUCTION','PERM_CREATE_SCAN_TABLE')") @Transactional public Map<String,Object> cancelRow(@PathVariable Long id,@PathVariable int rowNumber,@RequestParam(required=false) Long version){var table=tables.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在"));tenantScope.requireAccess(table.getTenant());var row=table.getRows().stream().filter(x->x.getRowNumber()==rowNumber).findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码行不存在"));requireVersion(row,version);if("COMPLETED".equals(row.getStatus())||"CANCELLED".equals(row.getStatus()))throw new ResponseStatusException(HttpStatus.CONFLICT,"扫码行已处于结束状态");row.setStatus("CANCELLED");if(table.getRows().stream().allMatch(x->"COMPLETED".equals(x.getStatus())||"CANCELLED".equals(x.getStatus())))table.setStatus("COMPLETED");return tableDto(tables.save(table));}
  @DeleteMapping("/tables/{id}") @PreAuthorize("hasAuthority('PERM_DELETE_SCAN_TABLE')") @Transactional public void delete(@PathVariable Long id){if(!tables.existsById(id))throw new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在");tables.deleteById(id);audit.record(actor(),"SCAN_TABLE_DELETE","SCAN_TABLE",String.valueOf(id),"删除扫码表",null,true);}
  @DeleteMapping("/tables/{id}/fields/{fieldKey}") @PreAuthorize("hasAuthority('PERM_DELETE_PRODUCTION_COLUMN')") @Transactional public Map<String,Object> deleteField(@PathVariable Long id,@PathVariable String fieldKey){
    var table=tables.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在")); tenantScope.requireAccess(table.getTenant());
@@ -185,5 +195,7 @@ public class ScanTableController {
  private Map<String,Object> templateDto(ScanTemplate t){var m=new LinkedHashMap<String,Object>();m.put("id",t.getId());m.put("customerName",t.getCustomerName());m.put("model",t.getModel());m.put("description",Optional.ofNullable(t.getDescription()).orElse(""));m.put("active",t.isActive());m.put("createdAt",t.getCreatedAt());m.put("fields",t.getFields().stream().sorted(Comparator.comparingInt(ScanTemplateField::getSortOrder)).map(f->Map.of("fieldKey",f.getFieldKey(),"fieldLabel",f.getFieldLabel(),"fieldType",f.getFieldType(),"required",f.isRequired())).toList());return m;}
  private List<Map<String,Object>> tableFields(ScanTable t){var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));var out=new ArrayList<Map<String,Object>>();t.getTemplate().getFields().stream().filter(f->!hidden.contains(f.getFieldKey())).sorted(Comparator.comparingInt(ScanTemplateField::getSortOrder)).forEach(f->out.add(Map.of("fieldKey",f.getFieldKey(),"fieldLabel",f.getFieldLabel(),"fieldType",f.getFieldType(),"required",f.isRequired())));if(t.getCustomFieldDefs()!=null)for(var d:t.getCustomFieldDefs().split("\\n")){var p=d.split("\\|",-1);if(p.length>=2&&!hidden.contains(p[0])){var type=p.length>=4?p[3]:(p[1].toLowerCase().contains("sn")?"SN":"TEXT");var item=Map.<String,Object>of("fieldKey",p[0],"fieldLabel",p[1],"fieldType",type,"required",false);var after=p.length>=3?p[2]:"";var position=-1;for(var i=0;i<out.size();i++)if(after.equals(out.get(i).get("fieldKey")))position=i;out.add(position>=0?position+1:out.size(),item);}}return out;}
  private Map<String,Object> tableDto(ScanTable t){return tableDto(t,false);}
- private Map<String,Object> tableDto(ScanTable t,boolean includeCompleted){var m=new LinkedHashMap<String,Object>();var template=templateDto(t.getTemplate());template.put("fields",tableFields(t));var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));m.put("id",t.getId());m.put("customerName",t.getCustomerName());m.put("model",t.getModel());m.put("dispatchOrderNo",Optional.ofNullable(t.getDispatchOrderNo()).orElse(""));m.put("disableAutoFillPartModels",t.isDisableAutoFillPartModels());m.put("quantity",t.getQuantity());m.put("status",t.getStatus());m.put("createdAt",t.getCreatedAt());m.put("template",template);m.put("rows",t.getRows().stream().filter(r->includeCompleted||!"COMPLETED".equals(r.getStatus())).map(r->Map.of("id",r.getId(),"rowNumber",r.getRowNumber(),"status",r.getStatus(),"values",r.getValues().stream().filter(v->!hidden.contains(v.getFieldKey())).map(v->Map.of("fieldKey",v.getFieldKey(),"value",Optional.ofNullable(v.getFieldValue()).orElse(""),"operatorNo",Optional.ofNullable(v.getOperatorNo()).orElse(""))).toList())).toList());return m;}
+ private Map<String,Object> tableDto(ScanTable t,boolean includeCompleted){var m=new LinkedHashMap<String,Object>();var template=templateDto(t.getTemplate());template.put("fields",tableFields(t));var hidden=t.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(t.getHiddenFieldKeys().split(",")));m.put("id",t.getId());m.put("customerName",t.getCustomerName());m.put("model",t.getModel());m.put("dispatchOrderNo",Optional.ofNullable(t.getDispatchOrderNo()).orElse(""));m.put("disableAutoFillPartModels",t.isDisableAutoFillPartModels());m.put("quantity",t.getQuantity());m.put("status",t.getStatus());m.put("createdAt",t.getCreatedAt());m.put("template",template);m.put("rows",t.getRows().stream().filter(r->includeCompleted||!"COMPLETED".equals(r.getStatus())).map(r->Map.of("id",r.getId(),"rowNumber",r.getRowNumber(),"status",r.getStatus(),"version",Optional.ofNullable(r.getVersion()).orElse(0L),"values",r.getValues().stream().filter(v->!hidden.contains(v.getFieldKey())).map(v->Map.of("fieldKey",v.getFieldKey(),"value",Optional.ofNullable(v.getFieldValue()).orElse(""),"operatorNo",Optional.ofNullable(v.getOperatorNo()).orElse(""))).toList())).toList());return m;}
+ private void requireVersion(ScanTableRow row, Long expected){if(expected!=null&&!Objects.equals(expected,row.getVersion()))throw new ResponseStatusException(HttpStatus.CONFLICT,"扫码行已被其他用户修改，请刷新后重试");}
+ private Map<String,Object> pageDto(List<?> content,int page,int size,long total,int pages){var m=new LinkedHashMap<String,Object>();m.put("content",content);m.put("page",page);m.put("size",size);m.put("totalElements",total);m.put("totalPages",pages);return m;}
 }
