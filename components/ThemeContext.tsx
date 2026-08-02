@@ -52,11 +52,65 @@ interface ThemeContextType {
   themeConfig: Theme;
 }
 
+type ThemeTokens = {
+  primary: string;
+  primaryStrong: string;
+  primarySoft: string;
+  primaryBorder: string;
+  primaryRgb: string;
+  strongRgb: string;
+};
+
+const THEME_TOKENS: Record<ThemeColor, ThemeTokens> = {
+  blue: { primary: '#2563eb', primaryStrong: '#1d4ed8', primarySoft: '#eff6ff', primaryBorder: '#bfdbfe', primaryRgb: '37,99,235', strongRgb: '29,78,216' },
+  purple: { primary: '#7c3aed', primaryStrong: '#6d28d9', primarySoft: '#f5f3ff', primaryBorder: '#ddd6fe', primaryRgb: '124,58,237', strongRgb: '109,40,217' },
+  green: { primary: '#059669', primaryStrong: '#047857', primarySoft: '#ecfdf5', primaryBorder: '#a7f3d0', primaryRgb: '5,150,105', strongRgb: '4,120,87' },
+  orange: { primary: '#ea580c', primaryStrong: '#c2410c', primarySoft: '#fff7ed', primaryBorder: '#fed7aa', primaryRgb: '234,88,12', strongRgb: '194,65,12' },
+  slate: { primary: '#475569', primaryStrong: '#334155', primarySoft: '#f8fafc', primaryBorder: '#cbd5e1', primaryRgb: '71,85,105', strongRgb: '51,65,85' }
+};
+
+const applyThemeTokens = (value: ThemeColor) => {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const tokens = THEME_TOKENS[value];
+  root.dataset.theme = value;
+  root.style.setProperty('--theme-primary', tokens.primary);
+  root.style.setProperty('--theme-primary-strong', tokens.primaryStrong);
+  root.style.setProperty('--theme-primary-soft', tokens.primarySoft);
+  root.style.setProperty('--theme-primary-border', tokens.primaryBorder);
+  root.style.setProperty('--theme-primary-rgb', tokens.primaryRgb);
+  root.style.setProperty('--theme-primary-strong-rgb', tokens.strongRgb);
+  root.style.setProperty('--color-secondary', tokens.primary);
+  root.style.setProperty('--color-primary', tokens.primaryStrong);
+  root.style.setProperty('--color-accent', tokens.primary);
+  root.style.setProperty('--slss-brand-rgb', tokens.primaryRgb);
+  root.style.setProperty('--slss-brand-dark-rgb', tokens.strongRgb);
+  window.dispatchEvent(new CustomEvent('slss-theme-updated', { detail: { theme: value, tokens } }));
+};
+
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<ThemeColor>('blue');
   const { user } = useAuth();
+
+  useEffect(() => {
+    applyThemeTokens(theme);
+  }, [theme]);
+
+  // Settings are saved from AdminPanel; listen as well so every mounted surface
+  // (including a second tab) updates without a full page reload.
+  useEffect(() => {
+    const onSettingsUpdated = (event: Event) => {
+      const next = (event as CustomEvent<any>).detail?.theme as ThemeColor | undefined;
+      if (next && THEMES[next]) {
+        setTheme(next);
+        localStorage.setItem('slss_theme', next);
+      }
+    };
+    window.addEventListener('slss-system-settings-updated', onSettingsUpdated);
+    return () => window.removeEventListener('slss-system-settings-updated', onSettingsUpdated);
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('slss_theme');
@@ -76,6 +130,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [user?.username]);
 
   const handleSetTheme = (newTheme: ThemeColor) => {
+    if (!THEMES[newTheme]) return;
     setTheme(newTheme);
     localStorage.setItem('slss_theme', newTheme);
   };
