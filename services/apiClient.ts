@@ -94,8 +94,10 @@ export const api = {
     counts: { users: number; permissionGroups: number; tenants: number; aiChannels: number; enabledAiChannels: number };
     configuration: { logRetentionDays: string; brandingConfigured: boolean };
   }>('/admin/overview'),
-  login: (username: string, password: string) =>
-    request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  login: (username: string, password: string, captcha?: { token?: string; answer?: string }) =>
+    request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password, captchaToken: captcha?.token, captchaAnswer: captcha?.answer }) }),
+  captchaStatus: (username: string) => request<{ required: boolean; failedAttempts?: number; threshold?: number }>(`/auth/captcha/status?username=${encodeURIComponent(username)}`),
+  captchaChallenge: (username: string) => request<{ token: string; image?: string; question?: string; expiresAt?: string }>('/auth/captcha/challenge', { method: 'POST', body: JSON.stringify({ username }) }),
   refreshSession: () => request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/refresh', { method: 'POST' }),
   currentSession: () => request<{ token: null; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
@@ -143,7 +145,7 @@ export const api = {
   health: () => request<{ status: string }>('/health'),
   systemStatus: () => request<any>('/system/status'),
   systemSettings: () => request<any>('/settings'),
-  branding: () => request<{ appName: string; theme: string; logo?: string }>('/settings/branding'),
+  branding: () => request<{ appName: string; subtitle?: string; theme: string; logo?: string; backgroundMode?: 'solid'|'single'|'carousel'|'gradient'; backgroundColor?: string; backgroundImages?: string[]; backgroundIntervalSeconds?: number; backgroundOverlay?: number; backgroundPosition?: string; captchaPolicy?: { enabled: boolean; triggerAfterFailures: number; expireSeconds: number; maxAttempts: number; length: number; caseSensitive: boolean } }>('/settings/branding'),
   updateSystemSettings: (payload: any) => request<any>('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   testAiConnection: () => request<{ message: string }>('/ai/test', { method: 'POST' }),
   aiChannels: () => request<any[]>('/settings/ai/channels'),

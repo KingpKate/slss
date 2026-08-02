@@ -4,7 +4,7 @@ import { api } from '../services/apiClient';
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password?: string) => Promise<boolean>;
+  login: (username: string, password?: string, captcha?: { token?: string; answer?: string }) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
   loginError: string;
@@ -51,11 +51,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('slss-session-updated', synchronize);
   }, []);
 
-  const login = async (username: string, password?: string): Promise<boolean> => {
+  const login = async (username: string, password?: string, captcha?: { token?: string; answer?: string }): Promise<boolean> => {
     setLoginError('');
     sessionStorage.removeItem('slss_password_change_skipped');
     try {
-        const result = await api.login(username, password || '');
+        const result = await api.login(username, password || '', captcha);
         localStorage.setItem('slss_token', result.token);
         const remoteUser = { id: 0, username: result.username, role: UserRole.ADMIN, password: '', status: 'active', permissions: result.authorities.map(a => a.replace(/^PERM_/, '')), mustChangePassword: Boolean(result.mustChangePassword) } as unknown as User;
         setUser(remoteUser);
