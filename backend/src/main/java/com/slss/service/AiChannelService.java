@@ -58,12 +58,28 @@ public class AiChannelService {
   public String generate(String prompt, String systemPrompt) {
     var enabled = channels.findByEnabledTrueOrderByPriorityAscIdAsc();
     if (enabled.isEmpty()) return null;
+    // Channels at the best priority participate in weighted routing. A failed
+    // channel is removed from the current attempt and the next weighted
+    // candidate is tried, providing both load distribution and failover.
+    int bestPriority = enabled.get(0).getPriority();
+    var candidates = new ArrayList<>(enabled.stream().filter(c -> c.getPriority() == bestPriority).toList());
+    var fallback = new ArrayList<>(enabled.stream().filter(c -> c.getPriority() != bestPriority).toList());
     Exception last = null;
-    for (var channel : enabled) {
+    while (!candidates.isEmpty() || !fallback.isEmpty()) {
+      var pool = candidates.isEmpty() ? fallback : candidates;
+      var channel = weightedPick(pool);
+      pool.remove(channel);
       try { return request(channel, prompt, false); }
       catch (Exception ex) { last = ex; channel.setLastStatus("DOWN"); channel.setLastError(trim(ex.getMessage())); channel.setLastTestAt(Instant.now()); channels.save(channel); }
     }
     throw new IllegalStateException("所有启用的 AI 渠道均不可用：" + trim(last == null ? null : last.getMessage()));
+  }
+
+  private AiChannel weightedPick(List<AiChannel> pool) {
+    int total = pool.stream().mapToInt(c -> Math.max(1, c.getWeight())).sum();
+    int cursor = random.nextInt(Math.max(1, total));
+    for (var channel : pool) { cursor -= Math.max(1, channel.getWeight()); if (cursor < 0) return channel; }
+    return pool.get(pool.size() - 1);
   }
 
   public Map<String, Object> models(long id) {
