@@ -1,0 +1,10 @@
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS branding_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  app_name VARCHAR(120) NOT NULL,
+  theme VARCHAR(32) NOT NULL,
+  logo_data LONGTEXT NULL,
+  created_by VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_branding_history_created (created_at)
+);

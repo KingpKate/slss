@@ -52,7 +52,7 @@ public class UserAdminController {
   }
 
   @GetMapping("/users") @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  public Page<UserResponse> list(@PageableDefault(size=50, sort="username") Pageable pageable){return users.findAll(pageable).map(this::response);}
+  public PageResponse<UserResponse> list(@PageableDefault(size=50, sort="username") Pageable pageable){return PageResponse.of(users.findAll(pageable).map(this::response));}
 
   @PostMapping("/users") @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')") @Transactional
   public UserResponse create(@Valid @RequestBody CreateUserRequest r,Principal principal,HttpServletRequest request){

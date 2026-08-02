@@ -2,6 +2,8 @@ package com.slss.api;
 
 import com.slss.domain.SystemSetting;
 import com.slss.repository.SystemSettingRepository;
+import com.slss.repository.BrandingHistoryRepository;
+import com.slss.domain.BrandingHistory;
 import com.slss.service.AuditService;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -25,12 +27,13 @@ public class SystemSettingsController {
   private static final Set<String> PUBLIC_KEYS = Set.of("app_name", "theme", "maintenance_mode", "log_retention_days");
   private final SystemSettingRepository settings;
   private final AuditService audit;
-  public SystemSettingsController(SystemSettingRepository settings, AuditService audit) { this.settings = settings; this.audit = audit; }
+  private final BrandingHistoryRepository brandingHistory;
+  public SystemSettingsController(SystemSettingRepository settings, AuditService audit, BrandingHistoryRepository brandingHistory) { this.settings = settings; this.audit = audit; this.brandingHistory = brandingHistory; }
 
   public record SettingsUpdateRequest(@NotBlank @Size(max=120) String appName,
       @NotBlank @Pattern(regexp="blue|purple|green|orange|slate") String theme,
-      Boolean maintenanceMode, @NotNull @Min(1) @Max(3650) Integer logRetentionDays) {}
-  public record BrandingResponse(String appName, String theme, String logo) {}
+      Boolean maintenanceMode, @NotNull @Min(1) @Max(3650) Integer logRetentionDays, Long version) {}
+  public record BrandingResponse(String appName, String theme, String logo, long version) {}
 
   @GetMapping("/company-logo")
   public Map<String, Object> companyLogo() {
@@ -44,25 +47,43 @@ public class SystemSettingsController {
     result.put("theme", value("theme", "green"));
     result.put("maintenanceMode", Boolean.parseBoolean(value("maintenance_mode", "false")));
     result.put("logRetentionDays", retentionDays());
+    result.put("version", settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L));
     return result;
   }
 
   /** Public, non-secret branding payload used by the login shell and app chrome. */
   @GetMapping("/branding")
   public BrandingResponse branding() {
-    return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, ""));
+    return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, ""), settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L));
   }
 
   @PutMapping
   @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
   @Transactional
   public Map<String, Object> updateSettings(@Valid @RequestBody SettingsUpdateRequest request, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
+    checkVersion(request.version());
+    snapshot(actor == null ? "system" : actor.getName());
     save("app_name", request.appName().trim());
     save("theme", request.theme());
     save("maintenance_mode", String.valueOf(Boolean.TRUE.equals(request.maintenanceMode())));
     save("log_retention_days", String.valueOf(request.logRetentionDays()));
     audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_SETTINGS_UPDATE", "SYSTEM_SETTINGS", "global", request.toString(), http.getRemoteAddr(), true);
     return getSettings();
+  }
+
+  @GetMapping("/branding/history")
+  @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
+  public java.util.List<BrandingHistory> brandingHistory() { return brandingHistory.findTop20ByOrderByCreatedAtDesc(); }
+
+  @PostMapping("/branding/rollback/{id}")
+  @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
+  @Transactional
+  public BrandingResponse rollback(@PathVariable Long id, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
+    var previous = brandingHistory.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "品牌版本不存在"));
+    snapshot(actor == null ? "system" : actor.getName());
+    saveRaw("app_name", previous.getAppName()); saveRaw("theme", previous.getTheme()); saveRaw(COMPANY_LOGO, previous.getLogoData() == null ? "" : previous.getLogoData());
+    audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_BRANDING_ROLLBACK", "SYSTEM_SETTINGS", String.valueOf(id), "branding rollback", http.getRemoteAddr(), true);
+    return branding();
   }
 
   private String value(String key, String fallback) { return settings.findById(key).map(SystemSetting::getSettingValue).filter(v -> v != null && !v.isBlank()).orElse(fallback); }
@@ -97,9 +118,20 @@ public class SystemSettingsController {
       var image = ImageIO.read(new ByteArrayInputStream(bytes));
       if (image == null || image.getWidth() > 4096 || image.getHeight() > 4096) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 图片格式或尺寸无效");
     } catch (java.io.IOException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LOGO 图片无法解析"); }
+    snapshot(actor == null ? "system" : actor.getName());
     var setting = settings.findById(COMPANY_LOGO).orElseGet(() -> { var item = new SystemSetting(); item.setSettingKey(COMPANY_LOGO); return item; });
     setting.setSettingValue(value); setting.setUpdatedAt(Instant.now()); settings.save(setting);
     audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_BRANDING_LOGO_UPDATE", "SYSTEM_SETTINGS", COMPANY_LOGO, "logo updated", http.getRemoteAddr(), true);
     return Map.of("value", value, "updatedAt", setting.getUpdatedAt());
+  }
+
+  private void checkVersion(Long requested) {
+    if (requested == null) return;
+    long actual = settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L);
+    if (requested.longValue() != actual) throw new ResponseStatusException(HttpStatus.CONFLICT, "系统参数已被其他管理员修改，请刷新后重试");
+  }
+
+  private void snapshot(String actor) {
+    var h = new BrandingHistory(); h.setAppName(value("app_name", "SLSS - 服务器全生命周期系统")); h.setTheme(value("theme", "green")); h.setLogoData(value(COMPANY_LOGO, "")); h.setCreatedBy(actor); brandingHistory.save(h);
   }
 }

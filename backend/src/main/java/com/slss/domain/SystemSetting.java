@@ -14,6 +14,9 @@ public class SystemSetting {
   private String settingValue;
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt = Instant.now();
+  @Version
+  @Column(nullable = false)
+  private long version;
 
   public String getSettingKey() { return settingKey; }
   public void setSettingKey(String value) { settingKey = value; }
@@ -21,4 +24,6 @@ public class SystemSetting {
   public void setSettingValue(String value) { settingValue = value; }
   public Instant getUpdatedAt() { return updatedAt; }
   public void setUpdatedAt(Instant value) { updatedAt = value; }
+  public long getVersion() { return version; }
+  public void setVersion(long value) { version = value; }
 }

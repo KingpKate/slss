@@ -17,6 +17,9 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
+import java.net.URI;
+import java.net.InetAddress;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 @Service
 public class AiChannelService {
@@ -28,7 +31,10 @@ public class AiChannelService {
 
   public AiChannelService(AiChannelRepository channels, ObjectMapper json, RestClient.Builder builder,
       @org.springframework.beans.factory.annotation.Value("${slss.security.jwt-secret}") String secret) {
-    this.channels = channels; this.json = json; this.http = builder.build();
+    this.channels = channels; this.json = json;
+    var requestFactory = new SimpleClientHttpRequestFactory();
+    requestFactory.setConnectTimeout(15_000); requestFactory.setReadTimeout(120_000);
+    this.http = builder.requestFactory(requestFactory).build();
     try { cryptoKey = MessageDigest.getInstance("SHA-256").digest((secret + "|slss-ai-channel").getBytes(StandardCharsets.UTF_8)); }
     catch (Exception e) { throw new IllegalStateException("无法初始化 AI 密钥加密器", e); }
   }
@@ -124,6 +130,7 @@ public class AiChannelService {
 
   /** Fetch and normalize the model catalog for a channel. */
   private List<String> discoverModelIds(AiChannel channel) {
+    validateEndpoint(channel.getBaseUrl());
     var base = channel.getBaseUrl().replaceAll("/+$", "");
     String key = decrypt(channel.getEncryptedApiKey());
     if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
@@ -131,7 +138,15 @@ public class AiChannelService {
     if ("GEMINI".equalsIgnoreCase(channel.getProtocol())) {
       data = http.get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
     } else {
-      data = http.get().uri(base + "/models").headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class);
+      // OpenAI-compatible vendors differ on whether the base URL already
+      // includes /v1. Probe the explicit endpoint first, then the conventional
+      // /v1/models path without requiring users to guess the suffix.
+      Exception last = null; data = null;
+      for (String path : modelPaths(base)) {
+        try { data = http.get().uri(path).headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class); if (data != null) break; }
+        catch (Exception ex) { last = ex; }
+      }
+      if (data == null && last != null) throw new IllegalStateException("模型目录请求失败：" + trim(last.getMessage()), last);
     }
     final var discovered = new ArrayList<String>();
     if (data != null && data.path("data").isArray()) data.path("data").forEach(n -> {
@@ -159,6 +174,7 @@ public class AiChannelService {
   private String request(AiChannel c, String prompt, String systemPrompt, boolean test) {
     if (c.getModel() == null || c.getModel().isBlank()) throw new IllegalStateException("请先选择或配置模型");
     String key = decrypt(c.getEncryptedApiKey()); if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
+    validateEndpoint(c.getBaseUrl());
     String base = c.getBaseUrl().replaceAll("/+$", "");
     if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))), "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); var response = http.post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "GEMINI"); }
     if ("ANTHROPIC".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("system", systemPrompt, "model", c.getModel(), "max_tokens", 1024, "messages", List.of(Map.of("role", "user", "content", prompt))); var response = http.post().uri(base + "/v1/messages").headers(h -> { headers(c, h); h.set("x-api-key", key); h.set("anthropic-version", "2023-06-01"); }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "ANTHROPIC"); }
@@ -183,4 +199,28 @@ public class AiChannelService {
   private static int integer(Object v, int fallback, int min, int max) { try { int n = v == null ? fallback : Integer.parseInt(String.valueOf(v)); if (n < min || n > max) throw new IllegalArgumentException("数值超出范围"); return n; } catch (NumberFormatException e) { throw new IllegalArgumentException("数值格式不正确"); } }
   private static String mask(String value) { return value == null || value.isBlank() ? "" : "••••••••"; }
   private static String trim(String value) { return value == null || value.isBlank() ? "未知错误" : value.length() > 500 ? value.substring(0, 500) : value; }
+
+  private static List<String> modelPaths(String base) {
+    var paths = new ArrayList<String>();
+    paths.add(base + "/models");
+    if (!base.endsWith("/v1")) paths.add(base + "/v1/models");
+    if (base.endsWith("/models")) paths.add(base);
+    return new ArrayList<>(new LinkedHashSet<>(paths));
+  }
+
+  /** Reject local/private destinations to prevent the admin AI connector from becoming an SSRF proxy. */
+  private static void validateEndpoint(String raw) {
+    try {
+      URI uri = URI.create(raw);
+      if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())) || uri.getUserInfo() != null || uri.getHost() == null)
+        throw new IllegalArgumentException("AI 接口地址必须是合法的 HTTP(S) URL");
+      String host = uri.getHost().toLowerCase(Locale.ROOT);
+      if (host.equals("localhost") || host.endsWith(".local") || host.equals("0.0.0.0") || host.equals("::1"))
+        throw new IllegalArgumentException("为防止 SSRF，不允许连接本机地址");
+      var address = InetAddress.getByName(host);
+      if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress())
+        throw new IllegalArgumentException("为防止 SSRF，不允许连接内网地址");
+    } catch (IllegalArgumentException ex) { throw ex; }
+      catch (Exception ex) { throw new IllegalArgumentException("AI 接口地址无法解析"); }
+  }
 }
