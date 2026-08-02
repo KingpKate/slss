@@ -23,6 +23,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -182,6 +184,22 @@ class ScanTableControllerTest {
 
     assertEquals(403, error.getStatusCode().value());
     assertTrue(error.getReason().contains("PERM_FORCE_EDIT_COMPLETED_SCAN"));
+  }
+
+  @Test
+  void pagedTablesClampUnsafePageAndSizeParameters() {
+    var scope = org.mockito.Mockito.mock(TenantScopeService.class);
+    when(scope.isSystemAdmin()).thenReturn(true);
+    when(scope.currentTenantIds()).thenReturn(java.util.Set.of());
+    controller = new ScanTableController(templates, tables, scanValues,
+        mock(ScanTemplateFieldRepository.class), mock(AuditService.class), scope);
+    when(tables.findByStatusIn(any(), any())).thenReturn(new PageImpl<>(List.of(table), PageRequest.of(0, 100), 1));
+
+    var result = controller.listTablesPage("ACTIVE", -5, 1000);
+
+    assertEquals(0, result.get("page"));
+    assertEquals(100, result.get("size"));
+    assertEquals(1L, result.get("totalElements"));
   }
 
   @Test
