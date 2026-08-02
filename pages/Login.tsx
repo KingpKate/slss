@@ -22,7 +22,7 @@ const fallbackBranding: Branding = {
   subtitle: '统一管理生产、售后、资产生命周期与交付风险。',
   backgroundMode: 'gradient',
   backgroundColor: '#0f172a',
-  backgroundImages: ['/login-backgrounds/rog-rise-of-gamers.jpg'],
+  backgroundImages: ['/login-backgrounds/logo.jpg'],
   backgroundIntervalSeconds: 8,
   backgroundOverlay: 0.58,
   backgroundPosition: 'center',

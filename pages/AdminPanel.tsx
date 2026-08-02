@@ -273,7 +273,7 @@ const AdminPanel: React.FC = () => {
   // -- System Status Mock State --
   const [sysStatus, setSysStatus] = useState<any>(null);
   const [statusLoading, setStatusLoading] = useState(false);
-  const [systemSettings, setSystemSettings] = useState({ appName: 'SLSS - 服务器全生命周期系统', theme: 'green' as ThemeColor, maintenanceMode: false, logRetentionDays: 90, loginSubtitle: '统一管理生产、售后、资产生命周期与交付风险。', loginBackgroundMode: 'single' as 'solid'|'single'|'carousel'|'gradient', loginBackgroundColor: '#0f172a', loginBackgroundImages: ['/login-backgrounds/rog-rise-of-gamers.jpg'] as string[], loginBackgroundIntervalSeconds: 8, loginBackgroundOverlay: 58, loginBackgroundPosition: 'center', loginCaptchaEnabled: true, loginCaptchaTriggerAfterFailures: 3, loginCaptchaExpireSeconds: 120, loginCaptchaMaxAttempts: 5 });
+  const [systemSettings, setSystemSettings] = useState({ appName: 'SLSS - 服务器全生命周期系统', theme: 'green' as ThemeColor, maintenanceMode: false, logRetentionDays: 90, loginSubtitle: '统一管理生产、售后、资产生命周期与交付风险。', loginBackgroundMode: 'single' as 'solid'|'single'|'carousel'|'gradient', loginBackgroundColor: '#0f172a', loginBackgroundImages: ['/login-backgrounds/logo.jpg'] as string[], loginBackgroundIntervalSeconds: 8, loginBackgroundOverlay: 58, loginBackgroundPosition: 'center', loginCaptchaEnabled: true, loginCaptchaTriggerAfterFailures: 3, loginCaptchaExpireSeconds: 120, loginCaptchaMaxAttempts: 5 });
   const loginBackgroundInputRef = useRef<HTMLInputElement>(null);
   const [logoValue, setLogoValue] = useState('');
   const [aiChannels, setAiChannels] = useState<any[]>([]);
