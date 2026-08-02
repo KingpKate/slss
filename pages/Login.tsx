@@ -28,6 +28,12 @@ const fallbackBranding: Branding = {
   backgroundPosition: 'center',
 };
 
+const resolveAssetUrl = (value: string) => {
+  if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
+  const path = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+  return `${path}${value.startsWith('/') ? value : `/${value}`}` || value;
+};
+
 const Login: React.FC = () => {
   const { login, user, loginError } = useAuth();
   const navigate = useNavigate();
@@ -61,8 +67,7 @@ const Login: React.FC = () => {
     }).catch(() => undefined);
     api.loginBackgroundAssets().then((assets: any[]) => {
       if (!active || !assets?.length) return;
-      const deployed = typeof window === 'undefined' ? '' : window.location.pathname.split('/').slice(0, 2).join('/');
-      setBranding(current => ({ ...current, backgroundImages: assets.map(asset => asset.url?.startsWith('http') ? asset.url : `${deployed}${asset.url || ''}`) }));
+      setBranding(current => ({ ...current, backgroundImages: assets.map(asset => resolveAssetUrl(asset.url || '')) }));
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
@@ -134,7 +139,7 @@ const Login: React.FC = () => {
 
   const solidBackground = branding.backgroundColor || '#0f172a';
   return <main className="slss-login-page relative grid min-h-screen place-items-center overflow-hidden p-4" style={{ background: solidBackground }}>
-    {backgrounds.map((src, index) => <img key={`${src}-${index}`} src={src} alt="" aria-hidden="true" onError={event => { (event.currentTarget as HTMLImageElement).style.display = 'none'; }} className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${index === (backgroundIndex % backgrounds.length) ? 'opacity-100' : 'opacity-0'}`} style={{ objectPosition: branding.backgroundPosition || 'center' }} />)}
+    {backgrounds.map((src, index) => <img key={`${src}-${index}`} src={resolveAssetUrl(src)} alt="" aria-hidden="true" onError={event => { (event.currentTarget as HTMLImageElement).style.display = 'none'; }} className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${index === (backgroundIndex % backgrounds.length) ? 'opacity-100' : 'opacity-0'}`} style={{ objectPosition: branding.backgroundPosition || 'center' }} />)}
     {backgrounds.length > 0 && <div className="absolute inset-0" style={{ backgroundColor: `rgba(2,6,23,${Math.min(0.9, Math.max(0, (branding.backgroundOverlay ?? 0.58) > 1 ? (branding.backgroundOverlay as number) / 100 : (branding.backgroundOverlay ?? 0.58)))})` }} />}
     <div className="relative z-10 slss-login-card grid w-full max-w-5xl overflow-hidden lg:grid-cols-[1.05fr_.95fr]">
       <section className="slss-login-brand relative hidden overflow-hidden p-10 text-white lg:block"><div className="slss-login-orb" /><div className="relative flex h-full flex-col justify-between"><div><div className="mb-10 flex items-center gap-3"><div className="slss-login-logo-safe">{branding.logo ? <img src={branding.logo} alt="公司 LOGO" /> : <Server size={25} />}</div><span className="text-sm font-bold tracking-wide">{branding.appName}</span></div><p className="text-xs font-bold uppercase tracking-[.2em] text-[var(--theme-primary-border)]">Manufacturing control</p><h1 className="mt-4 max-w-md text-4xl font-bold leading-tight">让每一次扫码，都成为可追溯的生产事实。</h1><p className="mt-5 max-w-md text-sm leading-7 text-white/70">{branding.subtitle}</p></div><div className="flex items-center gap-6 text-xs text-white/70"><span className="flex items-center gap-2"><Activity size={15} className="text-[var(--theme-primary-border)]" />API 实时连接</span><span className="flex items-center gap-2"><ShieldCheck size={15} className="text-[var(--theme-primary-border)]" />RBAC 安全控制</span></div></div></section>

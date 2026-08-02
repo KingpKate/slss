@@ -9,6 +9,12 @@ import {
 } from 'lucide-react';
 import { ROLE_LABELS } from '../constants';
 
+const resolveAssetUrl = (value: string) => {
+  if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
+  const path = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+  return `${path}${value.startsWith('/') ? value : `/${value}`}` || value;
+};
+
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -21,7 +27,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     if (!user) return;
     api.branding().then((branding: any) => {
       if (branding?.appName) setAppName(branding.appName);
-      if (branding?.logo) setCompanyLogo(branding.logo);
+      if (branding?.logo) setCompanyLogo(resolveAssetUrl(branding.logo));
       setSystemOnline(true);
     }).catch(() => setSystemOnline(false));
   }, [user?.username]);
