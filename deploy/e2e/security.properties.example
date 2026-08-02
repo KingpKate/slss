@@ -1,0 +1,6 @@
+security.jwtSecret=replace-with-e2e-jwt-secret-at-least-32-bytes
+security.refreshSecret=replace-with-a-different-e2e-refresh-secret
+security.reportDownloadSecret=replace-with-e2e-report-secret-at-least-32-bytes
+security.jwtTtl=PT1H
+security.refreshTtl=P30D
+security.corsAllowedOrigins=http://localhost:4173

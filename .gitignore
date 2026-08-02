@@ -31,4 +31,6 @@ backend/target/
 apache-maven-*-bin.tar.gz
 backend/src/main/resources/static/
 backend/src/main/resources/static/assets/
+deploy/e2e/*.properties
+!deploy/e2e/*.properties.example
 slss-git/

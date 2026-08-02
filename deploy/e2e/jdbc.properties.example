@@ -1,0 +1,7 @@
+jdbc.driverClassName=com.mysql.cj.jdbc.Driver
+jdbc.url=jdbc:mysql://slss-mysql:3306/slss?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+jdbc.username=slss
+jdbc.password=replace-with-e2e-db-password
+jdbc.maximumPoolSize=10
+jdbc.minimumIdle=2
+jdbc.connectionTimeout=30000
