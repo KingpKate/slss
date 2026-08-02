@@ -380,7 +380,7 @@ export default function ProductionMES() {
   ];
 
   return (
-    <div className="min-h-full bg-[#eef2f3] p-4 md:p-7">
+    <div className="min-h-full bg-[var(--color-background)] p-4 md:p-7">
       <header style={{ background: 'linear-gradient(135deg, rgb(var(--slss-brand-rgb, 29, 80, 56)), rgb(var(--slss-brand-dark-rgb, 16, 42, 32)))' }} className="rounded-2xl px-6 py-7 text-white shadow-xl">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>

@@ -119,7 +119,7 @@ export default function ProductionScanTemplates() {
     }
   };
 
-  return <div className="min-h-full bg-[#eef2f3] p-4 md:p-7">
+  return <div className="min-h-full bg-[var(--color-background)] p-4 md:p-7">
     <header style={{ background: 'linear-gradient(135deg, rgb(var(--slss-brand-rgb, 29, 80, 56)), rgb(var(--slss-brand-dark-rgb, 16, 42, 32)))' }} className="rounded-2xl px-6 py-7 text-white shadow-xl">
       <p className="text-xs font-bold uppercase tracking-[.28em] text-emerald-200">Production Scanner Control</p>
       <h1 className="mt-2 text-3xl font-semibold">生产扫码模板配置</h1>
