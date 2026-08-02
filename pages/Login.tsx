@@ -60,6 +60,7 @@ const Login: React.FC = () => {
       const next = {
         ...fallbackBranding,
         ...value,
+        logo: value.logo ? resolveAssetUrl(value.logo) : value.logo,
         backgroundImages: value.backgroundImages?.length ? value.backgroundImages : fallbackBranding.backgroundImages,
       };
       setBranding(next);
