@@ -171,14 +171,16 @@ export const api = {
 
 export const productionApi = {
   scanTemplates: () => request<any[]>('/scan/templates'),
+  scanTemplatesPage: (page = 0, size = 20) => request<any>(`/scan/templates/page?page=${page}&size=${size}`),
   createScanTemplate: (payload: unknown) => request<any>('/scan/templates', { method: 'POST', body: JSON.stringify(payload) }),
   updateScanTemplate: (id: number, payload: unknown) => request<any>(`/scan/templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteScanTemplate: (id: number) => request<void>(`/scan/templates/${id}`, { method: 'DELETE' }),
   scanTables: () => request<any[]>('/scan/tables'),
+  scanTablesPage: (status = 'OPEN', page = 0, size = 20) => request<any>(`/scan/tables/page?status=${encodeURIComponent(status)}&page=${page}&size=${size}`),
   scanTablesAll: () => request<any[]>('/scan/tables/all'),
   createScanTable: (templateId: number, quantity: number, dispatchOrderNo?: string, disableAutoFillPartModels = false) => request<any>('/scan/tables', { method: 'POST', body: JSON.stringify({ templateId, quantity, dispatchOrderNo, disableAutoFillPartModels }) }),
-  saveScanRow: (tableId: number, rowNumber: number, values: unknown[]) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}`, { method: 'PUT', body: JSON.stringify(values) }),
-  completeScanRow: (tableId: number, rowNumber: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/complete`, { method: 'POST' }),
+  saveScanRow: (tableId: number, rowNumber: number, values: unknown[], version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}${version == null ? '' : `?version=${version}`}`, { method: 'PUT', body: JSON.stringify(values) }),
+  completeScanRow: (tableId: number, rowNumber: number, version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/complete${version == null ? '' : `?version=${version}`}`, { method: 'POST' }),
   deleteScanTable: (tableId: number) => request<void>(`/scan/tables/${tableId}`, { method: 'DELETE' }),
   deleteScanColumn: (tableId: number, fieldKey: string) => request<any>(`/scan/tables/${tableId}/fields/${encodeURIComponent(fieldKey)}`, { method: 'DELETE' }),
   addScanColumn: (tableId: number, fieldKey: string, label: string, afterKey: string) => request<any>(`/scan/tables/${tableId}/fields`, { method: 'POST', body: JSON.stringify({ key: fieldKey, label, type: /sn|序列号/i.test(`${fieldKey} ${label}`) ? 'SN' : 'TEXT', required: false, afterKey }) }),

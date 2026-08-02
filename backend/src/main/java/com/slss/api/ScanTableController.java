@@ -57,9 +57,9 @@ public class ScanTableController {
  }
  @DeleteMapping("/templates/{id}") @PreAuthorize("hasAuthority('PERM_MANAGE_SCAN_TEMPLATE')") @Transactional public void deleteTemplate(@PathVariable Long id){var t=templates.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码模板不存在"));tenantScope.requireAccess(t.getTenant());t.setActive(false);templates.save(t);audit.record(actor(),"SCAN_TEMPLATE_DELETE","SCAN_TEMPLATE",String.valueOf(id),"软删除扫码模板: "+t.getCustomerName()+"/"+t.getModel(),null,true);}
  @GetMapping("/tables") @Transactional public List<Map<String,Object>> listTables(){
-   return tables.findByStatusOrderByCreatedAtDesc("OPEN").stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::tableDto).toList();
+   return tables.findByStatusInOrderByCreatedAtDesc(List.of("OPEN","IN_PROGRESS")).stream().filter(t->tenantScope.canAccess(t.getTenant())).map(this::tableDto).toList();
  }
- @GetMapping("/tables/page") @Transactional public Map<String,Object> listTablesPage(@RequestParam(defaultValue="OPEN") String status,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){var pageable=PageRequest.of(Math.max(0,page),Math.min(Math.max(size,1),100),Sort.by(Sort.Direction.DESC,"createdAt"));var ids=tenantScope.currentTenantIds();var p=tenantScope.isSystemAdmin()?tables.findByStatus(status,pageable):(ids.isEmpty()?org.springframework.data.domain.Page.<ScanTable>empty(pageable):tables.findByStatusAndTenant_IdIn(status,ids,pageable));var content=p.getContent().stream().map(this::tableDto).toList();return pageDto(content,p.getNumber(),p.getSize(),p.getTotalElements(),p.getTotalPages());}
+ @GetMapping("/tables/page") @Transactional public Map<String,Object> listTablesPage(@RequestParam(defaultValue="ACTIVE") String status,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){var pageable=PageRequest.of(Math.max(0,page),Math.min(Math.max(size,1),100),Sort.by(Sort.Direction.DESC,"createdAt"));var statuses="ACTIVE".equalsIgnoreCase(status)?List.of("OPEN","IN_PROGRESS"):List.of(status.toUpperCase(Locale.ROOT));var ids=tenantScope.currentTenantIds();var p=tenantScope.isSystemAdmin()?(statuses.size()==1?tables.findByStatus(statuses.get(0),pageable):tables.findByStatusIn(statuses,pageable)):(ids.isEmpty()?org.springframework.data.domain.Page.<ScanTable>empty(pageable):(statuses.size()==1?tables.findByStatusAndTenant_IdIn(statuses.get(0),ids,pageable):tables.findByStatusInAndTenant_IdIn(statuses,ids,pageable)));var content=p.getContent().stream().map(this::tableDto).toList();return pageDto(content,p.getNumber(),p.getSize(),p.getTotalElements(),p.getTotalPages());}
  @GetMapping("/tables/all") @Transactional public List<Map<String,Object>> listAllTables(){
    return tables.findAll().stream().filter(t->tenantScope.canAccess(t.getTenant())).sorted(Comparator.comparing(ScanTable::getCreatedAt,Comparator.nullsLast(Comparator.reverseOrder()))).map(t->tableDto(t,true)).toList();
  }
@@ -85,7 +85,6 @@ public class ScanTableController {
    if("CANCELLED".equals(row.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT,"已取消扫码行不能修改");
    if("COMPLETED".equals(row.getStatus())&&!hasAuthority("PERM_FORCE_EDIT_COMPLETED_SCAN")) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"已完工行不允许修改，需 PERM_FORCE_EDIT_COMPLETED_SCAN 权限");
    if("COMPLETED".equals(row.getStatus())) { row.setStatus("IN_PROGRESS"); row.setCompletedBy(null); row.setCompletedAt(null); }
-   if("COMPLETED".equals(row.getStatus())&&!hasAuthority("PERM_FORCE_EDIT_COMPLETED_SCAN"))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"已完工行不允许修改，需 PERM_FORCE_EDIT_COMPLETED_SCAN 权限");
    var allowed=allowedFieldKeys(table);
    if(values==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"扫码数据不能为空");
    for(var v:values){
