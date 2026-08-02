@@ -54,6 +54,18 @@ public class AiChannelService {
     }
   }
 
+  /** Routes an application request through the highest-priority enabled channel. */
+  public String generate(String prompt, String systemPrompt) {
+    var enabled = channels.findByEnabledTrueOrderByPriorityAscIdAsc();
+    if (enabled.isEmpty()) return null;
+    Exception last = null;
+    for (var channel : enabled) {
+      try { return request(channel, prompt, false); }
+      catch (Exception ex) { last = ex; channel.setLastStatus("DOWN"); channel.setLastError(trim(ex.getMessage())); channel.setLastTestAt(Instant.now()); channels.save(channel); }
+    }
+    throw new IllegalStateException("所有启用的 AI 渠道均不可用：" + trim(last == null ? null : last.getMessage()));
+  }
+
   public Map<String, Object> models(long id) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {

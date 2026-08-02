@@ -18,11 +18,13 @@ public class AiGatewayService {
   private final SystemSettingRepository settings;
   private final RestClient http;
   private final ObjectMapper json;
+  private final AiChannelService channels;
 
-  public AiGatewayService(SystemSettingRepository settings, RestClient.Builder builder, ObjectMapper json) {
+  public AiGatewayService(SystemSettingRepository settings, RestClient.Builder builder, ObjectMapper json, AiChannelService channels) {
     this.settings = settings;
     this.http = builder.build();
     this.json = json;
+    this.channels = channels;
   }
 
   public String test(Map<String, String> override) {
@@ -52,6 +54,10 @@ public class AiGatewayService {
   }
 
   private String generate(Map<String, String> config, String prompt, String systemPrompt) {
+    if (config.isEmpty()) {
+      var routed = channels.generate(prompt, systemPrompt);
+      if (routed != null) return routed;
+    }
     var provider = config.getOrDefault("provider", "google");
     var model = config.getOrDefault("model", DEFAULT_MODEL);
     var apiKey = config.getOrDefault("apiKey", "");
