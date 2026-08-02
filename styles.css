@@ -34,10 +34,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @layer components {
   .slss-shell { min-height: 100vh; background: var(--color-background); }
   .slss-sidebar { background: #fff; border-right: 1px solid var(--color-border); }
-  .slss-brand { background: linear-gradient(145deg, rgb(var(--slss-brand-rgb)), rgb(var(--slss-brand-dark-rgb))); }
+  .slss-brand-panel { position: relative; overflow: hidden; background: #111827; border-bottom: 1px solid #26364b; }
+  .slss-brand-panel::before { position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, #2563eb, #60a5fa, transparent); content: ''; }
+  .slss-brand-panel::after { position: absolute; right: -56px; top: 18px; width: 150px; height: 150px; border: 1px solid rgba(96,165,250,.14); border-radius: 50%; box-shadow: 0 0 0 18px rgba(96,165,250,.03), 0 0 0 36px rgba(96,165,250,.025); content: ''; pointer-events: none; }
+  .slss-brand-mark { position: relative; z-index: 1; color: #bfdbfe; border: 1px solid rgba(147,197,253,.4); background: rgba(30,64,175,.35); box-shadow: 0 8px 18px rgba(2,6,23,.22); }
+  .slss-brand-kicker { position: relative; z-index: 1; color: #93c5fd; font-family: "Fira Code", monospace; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
+  .slss-brand-meta { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; color: #64748b; font-size: 9px; font-weight: 700; letter-spacing: .16em; }
+  .slss-brand-line { width: 20px; height: 1px; background: #3b82f6; }
+  .slss-user-avatar { background: var(--color-primary); }
   .slss-nav-link { color: #475569; border-left: 3px solid transparent; transition: background .2s ease, color .2s ease, border-color .2s ease; }
   .slss-nav-link:hover { background: #f1f5f9; color: var(--color-primary); }
-  .slss-nav-link-active { color: var(--color-primary); background: #e9eef5; border-left-color: var(--color-accent); font-weight: 700; }
+  .slss-nav-link-active { color: var(--color-primary); background: #eff6ff; border-left-color: var(--color-secondary); font-weight: 700; }
   .slss-topbar { background: rgba(255,255,255,.92); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(14px); }
   .slss-page { min-height: 100%; min-width: 0; background: radial-gradient(circle at 100% 0%, rgba(37,99,235,.05), transparent 28rem), var(--color-background); padding-bottom: max(1.75rem, env(safe-area-inset-bottom)); }
   .slss-card { background: #fff; border: 1px solid var(--color-border); border-radius: 14px; box-shadow: 0 6px 20px rgba(15,23,42,.06); }

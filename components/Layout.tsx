@@ -63,11 +63,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   return <div className="slss-shell flex">
     {sidebarOpen && <button aria-label="关闭侧栏" className="fixed inset-0 z-20 bg-slate-950/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
     <aside className={`slss-sidebar fixed inset-y-0 left-0 z-30 flex w-[276px] flex-col transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className="slss-brand flex min-h-[84px] items-center gap-3 px-5 text-white">
-        <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-white/25 bg-white/15 shadow-sm">
-          {companyLogo ? <img src={companyLogo} alt="公司 LOGO" className="h-full w-full object-contain" /> : <Server size={23} aria-hidden="true" />}
+      <div className="slss-brand-panel min-h-[112px] px-5 py-5 text-white">
+        <div className="flex items-center gap-3">
+          <div className="slss-brand-mark grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl">
+            {companyLogo ? <img src={companyLogo} alt="公司 LOGO" className="h-full w-full object-contain" /> : <Server size={22} aria-hidden="true" />}
+          </div>
+          <div className="min-w-0"><p className="slss-brand-kicker">SLSS · MES</p><p className="mt-1 truncate text-sm font-semibold tracking-wide">{appName}</p></div>
         </div>
-        <div className="min-w-0"><p className="truncate text-sm font-semibold tracking-wide">{appName}</p><p className="mt-1 text-[10px] uppercase tracking-[.18em] text-white/65">Manufacturing control</p></div>
+        <div className="slss-brand-meta mt-4"><span className="slss-brand-line" />OPERATIONS CONSOLE <span className="ml-auto font-mono text-[10px] text-slate-500">2.1</span></div>
         <button aria-label="关闭侧栏" className="ml-auto rounded-lg p-2 text-white/70 hover:bg-white/10 lg:hidden" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
       </div>
       <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-[11px] text-slate-500"><span className="slss-status-dot" />系统在线 <span className="ml-auto font-mono text-slate-400">v2.1</span></div>
@@ -78,7 +81,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </React.Fragment>)}
       </nav>
       <div className="border-t border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[rgb(var(--slss-brand-rgb))] text-sm font-bold text-white">{user.username.slice(0, 1).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{user.username}</p><p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role] || user.role}</p></div></div>
+        <div className="mb-3 flex items-center gap-3"><div className="slss-user-avatar grid h-9 w-9 place-items-center rounded-full text-sm font-bold text-white">{user.username.slice(0, 1).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{user.username}</p><p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role] || user.role}</p></div></div>
         <button onClick={logout} className="flex min-h-[42px] w-full items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-red-600"><LogOut size={16} />退出登录</button>
       </div>
     </aside>
