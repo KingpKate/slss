@@ -20,6 +20,7 @@ interface GridRow extends Partial<Asset> {
   [key: string]: any;
   _id: string; // Temp ID for React keys
   _rowNumber?: number; // Persistent database row number
+  _version?: number; // Server optimistic-lock version
   syncStatus: 'draft' | 'synced'; // New field for dual-status
   _completed?: boolean;
   _missingFields?: string[];
@@ -177,6 +178,7 @@ const ProductionEntry: React.FC<ProductionEntryProps> = ({ selectedTemplate, ini
       return {
         _id: String(source.id || index + 1),
         _rowNumber: Number(source.rowNumber || source.row_number || index + 1),
+        _version: Number(source.version ?? 0),
         ...values,
         machine_sn: source.machineSn || values.machine_sn || '',
         model: modelValue || values.model || selectedTemplate.model || '',
@@ -410,8 +412,12 @@ const ProductionEntry: React.FC<ProductionEntryProps> = ({ selectedTemplate, ini
     if (scanTableId && Number.isFinite(Number(scanTableId))) {
       const sourceIndex = rows.findIndex(item => item._id === id);
       if (sourceIndex >= 0) {
-        const saveOne = (row: GridRow, rowIndex: number, override?: string) =>
-          productionApi.saveScanRow(Number(scanTableId), row._rowNumber || rowIndex + 1, [{ fieldKey: field, value: override ?? String(row[field] || '') }]);
+        const saveOne = async (row: GridRow, rowIndex: number, override?: string) => {
+          const saved = await productionApi.saveScanRow(Number(scanTableId), row._rowNumber || rowIndex + 1, [{ fieldKey: field, value: override ?? String(row[field] || '') }], row._version);
+          const persisted = (saved?.rows || []).find((candidate: any) => Number(candidate.rowNumber || candidate.row_number) === Number(row._rowNumber || rowIndex + 1));
+          if (persisted?.version != null) setRows(previous => previous.map(item => item._id === row._id ? { ...item, _version: Number(persisted.version) } : item));
+          return saved;
+        };
         try {
           const firstRow = sourceIndex === 0 && !disableAutoFillPartModels && isPartModel;
           if (firstRow) {
@@ -518,7 +524,7 @@ const ProductionEntry: React.FC<ProductionEntryProps> = ({ selectedTemplate, ini
       try {
         // Persist completion on the server first. This makes the row hidden
         // for every account, not only in the current browser.
-        await productionApi.completeScanRow(Number(scanTableId), row._rowNumber || rowIndex + 1);
+        await productionApi.completeScanRow(Number(scanTableId), row._rowNumber || rowIndex + 1, row._version);
       } catch (error: any) {
         setStatusMsg({ type: 'error', text: error?.message || '完工保存失败，请稍后重试。' });
         return;

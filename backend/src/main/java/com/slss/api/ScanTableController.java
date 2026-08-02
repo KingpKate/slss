@@ -115,6 +115,8 @@ public class ScanTableController {
    if(!values.isEmpty() && "OPEN".equals(row.getStatus())) row.setStatus("IN_PROGRESS");
    return tableDto(tables.save(table));
  }
+ /** Backward-compatible Java service entry point used by existing callers/tests. */
+ public Map<String,Object> saveRow(Long id,int rowNumber,List<Value> values){return saveRow(id,rowNumber,null,values);}
 
  private record FieldInfo(boolean sn, boolean machine, String label) {}
  private FieldInfo fieldDefinition(ScanTable table, String key) {
@@ -183,6 +185,8 @@ public class ScanTableController {
    if(!missing.isEmpty()&&!hasAuthority("PERM_FORCE_COMPLETE_SCAN"))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"必填项尚未全部录入，强制完工需 PERM_FORCE_COMPLETE_SCAN 权限："+String.join("、",missing));
    row.setStatus("COMPLETED");row.setCompletedBy(actor());row.setCompletedAt(Instant.now());if(table.getRows().stream().allMatch(x->"COMPLETED".equals(x.getStatus())||"CANCELLED".equals(x.getStatus())))table.setStatus("COMPLETED");return tableDto(tables.save(table));
  }
+ /** Backward-compatible Java service entry point used by existing callers/tests. */
+ public Map<String,Object> completeRow(Long id,int rowNumber){return completeRow(id,rowNumber,null);}
  @PostMapping("/tables/{id}/rows/{rowNumber}/cancel") @PreAuthorize("hasAnyAuthority('PERM_MANAGE_PRODUCTION','PERM_CREATE_SCAN_TABLE')") @Transactional public Map<String,Object> cancelRow(@PathVariable Long id,@PathVariable int rowNumber,@RequestParam(required=false) Long version){var table=tables.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在"));tenantScope.requireAccess(table.getTenant());var row=table.getRows().stream().filter(x->x.getRowNumber()==rowNumber).findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码行不存在"));requireVersion(row,version);if("COMPLETED".equals(row.getStatus())||"CANCELLED".equals(row.getStatus()))throw new ResponseStatusException(HttpStatus.CONFLICT,"扫码行已处于结束状态");row.setStatus("CANCELLED");if(table.getRows().stream().allMatch(x->"COMPLETED".equals(x.getStatus())||"CANCELLED".equals(x.getStatus())))table.setStatus("COMPLETED");return tableDto(tables.save(table));}
  @DeleteMapping("/tables/{id}") @PreAuthorize("hasAuthority('PERM_DELETE_SCAN_TABLE')") @Transactional public void delete(@PathVariable Long id){if(!tables.existsById(id))throw new ResponseStatusException(HttpStatus.NOT_FOUND,"扫码表不存在");tables.deleteById(id);audit.record(actor(),"SCAN_TABLE_DELETE","SCAN_TABLE",String.valueOf(id),"删除扫码表",null,true);}
  @DeleteMapping("/tables/{id}/fields/{fieldKey}") @PreAuthorize("hasAuthority('PERM_DELETE_PRODUCTION_COLUMN')") @Transactional public Map<String,Object> deleteField(@PathVariable Long id,@PathVariable String fieldKey){
