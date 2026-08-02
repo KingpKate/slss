@@ -32,14 +32,46 @@ SLSS MES 是一个前后端分离的制造执行系统（MES），同时覆盖�
 
 ## 2. 环境要求
 
-建议使用以下版本：
+项目按以下版本进行本机发布验收，生产环境建议锁定同一大版本：
 
 - Git 2.40+
-- Node.js 20 LTS 及 npm
-- JDK 17（`java -version`）
-- Maven 3.9+（或项目可用的 Maven Wrapper）
-- MySQL 8.0+
-- Tomcat 10.1+
+- Node.js 20 LTS 或 22 LTS，npm 10+
+- JDK 17+（本机验收使用 JDK 21；`backend/pom.xml` 的最低兼容版本为 17）
+- Maven 3.9+
+- MySQL 8.0.30+（本机验收为 8.0.46）
+- Redis 7.0+（本机验收为 7.0.15；仅 RabbitMQ 执行器需要）
+- Tomcat 10.1.x（本机验收为 10.1.55）
+- Spring Boot 3.3.2、Flyway 迁移版本 V1–V45
+
+Tomcat 10.1 必须使用 Jakarta Servlet 6；不要使用 Tomcat 9 或更早版本。
+MySQL、Redis、Tomcat 应部署在受控内网，生产环境通过 HTTPS 反向代理对外提供服务。
+
+### Ubuntu/Debian 安装示例
+
+以下命令适用于 Ubuntu 24.04。若系统已有对应服务，请先确认版本，不要重复安装：
+
+```bash
+sudo apt update
+sudo apt install -y git curl unzip build-essential mysql-server redis-server \
+  openjdk-21-jdk maven tomcat10
+
+mysql --version
+redis-server --version
+/usr/share/tomcat10/bin/version.sh
+java -version
+mvn -version
+```
+
+启动并设置开机启动：
+
+```bash
+sudo systemctl enable --now mysql redis-server tomcat10
+sudo systemctl status mysql redis-server tomcat10 --no-pager
+redis-cli ping                         # 期望 PONG
+```
+
+Redis 默认只监听本机。生产环境如需多实例访问，应显式配置监听地址、密码、ACL、
+防火墙和持久化策略，禁止直接暴露未鉴权的 6379 端口。
 
 RabbitMQ、Redis 仅在启用生产导入消息队列执行器时需要；本地开发可使用 `import.executor=local`。运行集成测试还需要 Docker 与可用的 Docker API。
 
@@ -69,6 +101,30 @@ FLUSH PRIVILEGES;
 
 不要手工建业务表。应用启动时 Flyway 会按顺序执行
 `backend/src/main/resources/db/migration/V*.sql`。升级时只新增迁移脚本，禁止修改已经在目标数据库执行过的脚本；正式升级前先备份数据库。
+
+验证数据库账号和字符集：
+
+```bash
+mysql -u slss -p -e "SELECT VERSION(), @@character_set_database, @@collation_database;" slss
+```
+
+生产备份示例：
+
+```bash
+mysqldump --single-transaction --routines --events \
+  -u slss -p slss > slss-$(date +%F-%H%M%S).sql
+```
+
+离线环境可按版本顺序导入 SQL：
+
+```bash
+for f in $(find backend/src/main/resources/db/migration -maxdepth 1 -name 'V*.sql' | sort -V); do
+  mysql --default-character-set=utf8mb4 -u slss -p slss < "$f"
+done
+```
+
+离线导入前必须使用全新数据库或经过备份和人工确认的目标库，不能重复导入已经由
+Flyway 执行过的脚本。正式运行建议仍由 Flyway 管理迁移版本记录。
 
 ## 5. 后端外置配置
 
@@ -172,7 +228,36 @@ http://SERVER_IP:8080/slss/
 健康检查：
 
 ```bash
-curl -i http://SERVER_IP:8080/slss/api/v1/health
+curl -i http://SERVER_IP:8080/slss/actuator/health
+```
+
+期望结果：
+
+```json
+{"status":"UP"}
+```
+
+使用 systemd 安装的 Tomcat 时，默认目录通常为 `/var/lib/tomcat10`；外置配置目录为：
+
+```text
+/var/lib/tomcat10/conf/slss/
+/var/lib/tomcat10/webapps/slss.war
+```
+
+推荐的完整发布顺序：
+
+```bash
+npm ci
+npm run build
+mvn -q -f backend/pom.xml test
+mvn -q -f backend/pom.xml -DskipTests package
+
+sudo rm -rf /var/lib/tomcat10/webapps/slss
+sudo install -o tomcat -g tomcat -m 640 \
+  backend/target/slss.war /var/lib/tomcat10/webapps/slss.war
+sudo systemctl restart tomcat10
+
+curl -fsS http://127.0.0.1:8080/slss/actuator/health
 ```
 
 静态登录页可以公开访问；资产、扫码表、生产统计、维修、用户权限等业务 API 必须经过 JWT/RBAC。生产环境建议使用反向代理和 HTTPS，并将 Tomcat Connector 绑定策略、CORS 来源和防火墙规则纳入部署配置。
