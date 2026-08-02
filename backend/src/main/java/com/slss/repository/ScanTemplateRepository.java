@@ -8,4 +8,5 @@ public interface ScanTemplateRepository extends JpaRepository<ScanTemplate,Long>
  Optional<ScanTemplate> findByActiveTrueAndCustomerNameIgnoreCaseAndModelIgnoreCase(String customerName,String model);
  List<ScanTemplate> findByActiveTrueOrderByCustomerNameAscModelAsc();
  Page<ScanTemplate> findByActiveTrue(Pageable pageable);
+ Page<ScanTemplate> findByActiveTrueAndTenant_IdIn(java.util.Collection<Long> tenantIds, Pageable pageable);
 }

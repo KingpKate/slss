@@ -7,4 +7,5 @@ import java.util.*;
 public interface ScanTableRepository extends JpaRepository<ScanTable,Long>{
  List<ScanTable> findByStatusOrderByCreatedAtDesc(String status);
  Page<ScanTable> findByStatus(String status, Pageable pageable);
+ Page<ScanTable> findByStatusAndTenant_IdIn(String status, java.util.Collection<Long> tenantIds, Pageable pageable);
 }
