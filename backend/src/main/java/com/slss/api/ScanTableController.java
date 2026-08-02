@@ -15,8 +15,8 @@ import java.util.*;
 @RestController @RequestMapping("/api/v1/scan")
 @PreAuthorize("hasAnyAuthority('PERM_CREATE_SCAN_TABLE','PERM_VIEW_PRODUCTION','PERM_MANAGE_PRODUCTION','PERM_MANAGE_SCAN_TEMPLATE')")
 public class ScanTableController {
- private final ScanTemplateRepository templates; private final ScanTableRepository tables; private final com.slss.repository.ScanTemplateFieldRepository templateFields; private final AuditService audit; private final TenantScopeService tenantScope;
- public ScanTableController(ScanTemplateRepository t,ScanTableRepository s,com.slss.repository.ScanTemplateFieldRepository f,AuditService a,TenantScopeService ts){templates=t;tables=s;templateFields=f;audit=a;tenantScope=ts;}
+ private final ScanTemplateRepository templates; private final ScanTableRepository tables; private final ScanTableValueRepository values; private final com.slss.repository.ScanTemplateFieldRepository templateFields; private final AuditService audit; private final TenantScopeService tenantScope;
+ public ScanTableController(ScanTemplateRepository t,ScanTableRepository s,ScanTableValueRepository v,com.slss.repository.ScanTemplateFieldRepository f,AuditService a,TenantScopeService ts){templates=t;tables=s;values=v;templateFields=f;audit=a;tenantScope=ts;}
  public record Field(String key,String label,String type,boolean required){}
  public record CustomFieldRequest(String key,String label,String type,boolean required,String afterKey){}
  public record TemplateRequest(String customerName,String model,String description,List<Field> fields){}
@@ -125,24 +125,20 @@ public class ScanTableController {
  }
  private record DuplicateInfo(String machineSn, String fieldLabel) {}
  private DuplicateInfo findDuplicateScanValue(ScanTable current, ScanTableRow currentRow, String value) {
-   var normalized = value.trim();
-   for (var candidate : tables.findAll()) {
-     if (candidate.getId() == null || !tenantSame(candidate.getTenant(), current.getTenant())) continue;
-     for (var candidateRow : candidate.getRows()) {
-       for (var candidateValue : candidateRow.getValues()) {
-         if (candidateRow.getId() != null && candidateRow.getId().equals(currentRow.getId()) && candidateValue.getFieldValue() != null && normalized.equalsIgnoreCase(candidateValue.getFieldValue())) continue;
-         if (candidateValue.getFieldValue() != null && normalized.equalsIgnoreCase(candidateValue.getFieldValue())) {
-           var info = fieldDefinition(candidate, candidateValue.getFieldKey());
-           if (!info.sn()) continue;
-           var machine = Optional.ofNullable(candidateRow.getMachineSn()).filter(x -> !x.isBlank()).orElseGet(() -> candidateRow.getValues().stream().filter(v -> fieldDefinition(candidate, v.getFieldKey()).machine()).map(ScanTableValue::getFieldValue).filter(x -> x != null && !x.isBlank()).findFirst().orElse(candidate.getModel() + "#" + candidateRow.getRowNumber()));
-           return new DuplicateInfo(machine, info.label());
-         }
-       }
-     }
+   var candidates = current.getTenant() == null
+       ? values.findByValueWithoutTenant(value)
+       : values.findByValueAndTenant(value, current.getTenant().getId());
+   for (var candidateValue : candidates) {
+     var candidateRow = candidateValue.getRow();
+     if (candidateRow.getId() != null && candidateRow.getId().equals(currentRow.getId())) continue;
+     var candidateTable = candidateRow.getScanTable();
+     var info = fieldDefinition(candidateTable, candidateValue.getFieldKey());
+     if (!info.sn()) continue;
+     var machine = Optional.ofNullable(candidateRow.getMachineSn()).filter(x -> !x.isBlank()).orElseGet(() -> candidateRow.getValues().stream().filter(v -> fieldDefinition(candidateTable, v.getFieldKey()).machine()).map(ScanTableValue::getFieldValue).filter(x -> x != null && !x.isBlank()).findFirst().orElse(candidateTable.getModel() + "#" + candidateRow.getRowNumber()));
+     return new DuplicateInfo(machine, info.label());
    }
    return null;
  }
- private boolean tenantSame(CustomerTenant left, CustomerTenant right) { return left == null ? right == null : right != null && Objects.equals(left.getId(), right.getId()); }
 
  private Set<String> allowedFieldKeys(ScanTable table){
    var hidden=table.getHiddenFieldKeys()==null?Set.<String>of():new HashSet<>(Arrays.asList(table.getHiddenFieldKeys().split(",")));
