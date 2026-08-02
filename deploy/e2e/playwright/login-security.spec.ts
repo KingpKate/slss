@@ -19,10 +19,7 @@ async function stubLoginContracts(page: Page) {
         backgroundMode: 'carousel',
         backgroundIntervalSeconds: 8,
         backgroundOverlay: 0.32,
-        backgrounds: [
-          { id: 'bg-1', url: '/assets/login/industrial-01.webp', alt: '工业生产线' },
-          { id: 'bg-2', url: '/assets/login/industrial-02.webp', alt: '设备机柜' },
-        ],
+        backgroundImages: ['/assets/login/industrial-01.webp', '/assets/login/industrial-02.webp'],
         version: 7,
       }),
     });
@@ -42,7 +39,7 @@ async function stubLoginContracts(page: Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         token: 'pw-captcha-token',
-        imageDataUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="140" height="44"><rect width="140" height="44" fill="%23e2e8f0"/><text x="24" y="29" font-size="20">A7KQ</text></svg>',
+        image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="140" height="44"><rect width="140" height="44" fill="%23e2e8f0"/><text x="24" y="29" font-size="20">A7KQ</text></svg>',
         expiresInSeconds: 120,
       }),
     });
