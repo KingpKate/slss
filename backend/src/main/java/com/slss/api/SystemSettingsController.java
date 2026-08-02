@@ -22,10 +22,6 @@ import javax.imageio.ImageIO;
 @RequestMapping("/api/v1/settings")
 public class SystemSettingsController {
   private static final String COMPANY_LOGO = "company_logo";
-  private static final String AI_PROVIDER = "ai_provider";
-  private static final String AI_MODEL = "ai_model";
-  private static final String AI_BASE_URL = "ai_base_url";
-  private static final String AI_API_KEY = "ai_api_key";
   private static final Set<String> PUBLIC_KEYS = Set.of("app_name", "theme", "maintenance_mode", "log_retention_days");
   private final SystemSettingRepository settings;
   private final AuditService audit;
@@ -69,37 +65,6 @@ public class SystemSettingsController {
     return getSettings();
   }
 
-  @GetMapping("/ai")
-  @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  public Map<String, Object> aiSettings() {
-    var key = value(AI_API_KEY, "");
-    return Map.of("provider", value(AI_PROVIDER, "google"), "model", value(AI_MODEL, "gemini-2.5-flash"),
-        "baseUrl", value(AI_BASE_URL, ""), "hasApiKey", !key.isBlank(),
-        "apiKeyMasked", key.isBlank() ? "" : "••••••••" + key.substring(Math.max(0, key.length() - 4)));
-  }
-
-  @PutMapping("/ai")
-  @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  @Transactional
-  public Map<String, Object> updateAiSettings(@RequestBody Map<String, String> body, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
-    if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AI 配置不能为空");
-    var provider = text(body.get("provider"), 1, 30, "AI 渠道");
-    if (!Set.of("google", "openai", "deepseek", "zhipu", "modelscope", "custom").contains(provider)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的 AI 渠道");
-    saveRaw(AI_PROVIDER, provider);
-    saveRaw(AI_MODEL, text(body.get("model"), 1, 120, "模型名称"));
-    var baseUrl = body.getOrDefault("baseUrl", "").trim();
-    if (baseUrl.length() > 500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "接口地址过长");
-    saveRaw(AI_BASE_URL, baseUrl);
-    // Empty key means keep the existing secret; the UI never receives the raw value.
-    var apiKey = body.get("apiKey");
-    if (apiKey != null && !apiKey.isBlank() && !apiKey.startsWith("••••")) {
-      if (apiKey.length() > 500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AI 密钥过长");
-      saveRaw(AI_API_KEY, apiKey.trim());
-    }
-    audit.record(actor == null ? "system" : actor.getName(), "SYSTEM_AI_SETTINGS_UPDATE", "SYSTEM_SETTINGS", "ai", "AI 配置已更新", http.getRemoteAddr(), true);
-    return aiSettings();
-  }
-
   private String value(String key, String fallback) { return settings.findById(key).map(SystemSetting::getSettingValue).filter(v -> v != null && !v.isBlank()).orElse(fallback); }
   private int retentionDays() {
     try {
@@ -114,11 +79,6 @@ public class SystemSettingsController {
   private void saveRaw(String key, String value) {
     var setting = settings.findById(key).orElseGet(() -> { var item = new SystemSetting(); item.setSettingKey(key); return item; });
     setting.setSettingValue(value); setting.setUpdatedAt(Instant.now()); settings.save(setting);
-  }
-  private static String text(Object value, int min, int max, String label) {
-    String text = value == null ? "" : String.valueOf(value).trim();
-    if (text.length() < min || text.length() > max) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "长度不合法");
-    return text;
   }
 
   @PutMapping("/company-logo")

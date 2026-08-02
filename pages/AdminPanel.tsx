@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { UserRole, User, Permission, DatabaseConfig, RedisConfig, SystemStatus, AIConfig } from '../types';
-import { testAIConnection } from '../services/aiService';
+import { UserRole, User, Permission, DatabaseConfig, RedisConfig, SystemStatus } from '../types';
 import { useTheme, THEMES, ThemeColor } from '../components/ThemeContext';
 import { 
   Shield, UserCheck, Settings, Save, Key, Globe, Cpu, AlertCircle, CheckCircle, 
@@ -44,52 +43,6 @@ const StatusIndicator = ({ status, text }: { status: 'good' | 'warning' | 'error
       <span className="text-sm font-medium text-gray-700">{text}</span>
     </div>
   );
-};
-
-// Provider Presets with Correct Endpoints
-const PROVIDER_PRESETS: Record<string, { label: string, baseUrl: string, models: string[], icon: any, desc: string }> = {
-  'google': { 
-    label: 'Google Gemini', 
-    baseUrl: '', 
-    models: ['gemini-2.5-flash', 'gemini-pro', 'gemini-1.5-pro'],
-    icon: Zap,
-    desc: '官方直连。如需代理，请在 Base URL 填入 OpenAI 格式的代理地址。'
-  },
-  'openai': { 
-    label: 'OpenAI', 
-    baseUrl: 'https://api.openai.com/v1', 
-    models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    icon: Globe,
-    desc: 'OpenAI 官方接口。支持 OneAPI/NewAPI 等中转服务。'
-  },
-  'deepseek': { 
-    label: 'DeepSeek (深度求索)', 
-    baseUrl: 'https://api.deepseek.com', 
-    models: ['deepseek-chat', 'deepseek-coder'],
-    icon: Cpu,
-    desc: '国内直连。BaseURL: https://api.deepseek.com'
-  },
-  'zhipu': { 
-    label: 'Zhipu AI (智谱GLM)', 
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4', 
-    models: ['glm-4', 'glm-4-air', 'glm-3-turbo'],
-    icon: Activity,
-    desc: '国内直连。BaseURL: https://open.bigmodel.cn/api/paas/v4'
-  },
-  'modelscope': { 
-    label: 'ModelScope (阿里百炼)', 
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', 
-    models: ['qwen-plus', 'qwen-turbo', 'qwen-max'],
-    icon: Server,
-    desc: '阿里云通义千问兼容接口。'
-  },
-  'custom': { 
-    label: 'Custom / Other', 
-    baseUrl: '', 
-    models: [],
-    icon: Settings,
-    desc: '连接任意支持 OpenAI 协议的私有模型 (如 LocalAI, Ollama)。'
-  }
 };
 
 const AdminPanel: React.FC = () => {
@@ -267,19 +220,11 @@ const AdminPanel: React.FC = () => {
     dbIndex: 0
   });
 
-  const [aiConfig, setAiConfig] = useState<AIConfig>({
-    provider: 'google',
-    model: 'gemini-2.5-flash',
-    baseUrl: '',
-    apiKey: ''
-  });
-
   // -- System Status Mock State --
   const [sysStatus, setSysStatus] = useState<any>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [systemSettings, setSystemSettings] = useState({ appName: 'SLSS - 服务器全生命周期系统', theme: 'green' as ThemeColor, maintenanceMode: false, logRetentionDays: 90 });
   const [logoValue, setLogoValue] = useState('');
-  const [aiKeyConfigured, setAiKeyConfigured] = useState(false);
   const [aiChannels, setAiChannels] = useState<any[]>([]);
   const [aiChannelForm, setAiChannelForm] = useState({ name: '', provider: 'custom', protocol: 'OPENAI_COMPATIBLE', baseUrl: '', model: '', apiKey: '', enabled: true, priority: 100, weight: 100, timeoutMs: 30000 });
 
@@ -297,10 +242,6 @@ const AdminPanel: React.FC = () => {
       setSystemSettings(next); setTheme(next.theme);
     }).catch((e: any) => setAdminError(e?.message || '系统参数加载失败'));
     api.companyLogo().then((value: any) => setLogoValue(value?.value || '')).catch((e: any) => setAdminError(e?.message || '公司 Logo 加载失败'));
-    api.aiSettings().then((value: any) => {
-      setAiConfig(previous => ({ ...previous, provider: value.provider || previous.provider, model: value.model || previous.model, baseUrl: value.baseUrl || previous.baseUrl }));
-      setAiKeyConfigured(Boolean(value.hasApiKey));
-    }).catch((e: any) => setAdminError(e?.message || 'AI 网关配置加载失败'));
     api.aiChannels().then(setAiChannels).catch((e: any) => setAdminError(e?.message || 'AI 渠道列表加载失败'));
   }, []);
 
@@ -351,32 +292,6 @@ const AdminPanel: React.FC = () => {
     }).finally(() => { setIsTestLoading(false); setTimeout(() => setSaveStatus(null), 4000); });
   };
 
-  const handleTestAI = async () => {
-    setIsTestLoading(true);
-    try {
-      if (!aiConfig.apiKey && !aiKeyConfigured) throw new Error('请先填写并保存 API 密钥');
-      // Save config temporarily first so test uses current values if we reload logic
-      // But here we pass config directly
-      const result = await testAIConnection(aiConfig);
-      setSaveStatus({ type: 'success', message: `AI 连接成功: ${result}` });
-    } catch (e: any) {
-      setSaveStatus({ type: 'error', message: `AI 连接失败: ${e.message}` });
-    } finally {
-      setIsTestLoading(false);
-      setTimeout(() => setSaveStatus(null), 5000);
-    }
-  };
-
-  const saveAiSettings = async () => {
-    try {
-      if (!aiConfig.model.trim()) throw new Error('模型名称不能为空');
-      const saved = await api.updateAiSettings(aiConfig);
-      setAiKeyConfigured(Boolean(saved.hasApiKey));
-      setSaveStatus({ type: 'success', message: 'AI 网关配置已保存，密钥不会在页面回显' });
-      window.setTimeout(() => setSaveStatus(null), 4000);
-    } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 配置保存失败' }); }
-  };
-
   const saveAiChannel = async () => {
     try {
       if (!aiChannelForm.name.trim() || !aiChannelForm.baseUrl.trim() || !aiChannelForm.model.trim()) throw new Error('渠道名称、接口地址和模型不能为空');
@@ -388,16 +303,6 @@ const AdminPanel: React.FC = () => {
   };
   const testAiChannel = async (id: number) => { try { await api.testAiChannel(id); const latest = await api.aiChannels(); setAiChannels(latest); setSaveStatus({ type: 'success', message: 'AI 渠道连接正常' }); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道连接失败' }); } };
   const removeAiChannel = async (id: number) => { try { await api.deleteAiChannel(id); setAiChannels(previous => previous.filter(item => item.id !== id)); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道删除失败' }); } };
-
-  const handleProviderChange = (providerKey: string) => {
-    const preset = PROVIDER_PRESETS[providerKey];
-    setAiConfig(prev => ({
-      ...prev,
-      provider: providerKey as any,
-      baseUrl: preset.baseUrl || '', // Auto-fill base URL
-      model: preset.models[0] || ''
-    }));
-  };
 
   const togglePermission = (userId: number, perm: Permission) => {
     setPermissionDirty(previous => new Set(previous).add(userId));
@@ -767,111 +672,6 @@ const AdminPanel: React.FC = () => {
                     {aiChannels.length > 0 && <div className="mt-4 space-y-2">{aiChannels.map(channel => <div key={channel.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white bg-white px-3 py-3 text-sm"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${channel.lastStatus === 'UP' ? 'bg-emerald-500' : channel.lastStatus === 'DOWN' ? 'bg-red-500' : 'bg-slate-300'}`} /><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{channel.name} <span className="ml-1 text-xs font-normal text-slate-500">{channel.protocol}</span></p><p className="truncate text-xs text-slate-500">{channel.baseUrl} · {channel.model} · 优先级 {channel.priority}</p></div></div><div className="flex items-center gap-2"><button onClick={() => testAiChannel(channel.id)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-[var(--theme-primary)] hover:text-[var(--theme-primary)]">测试</button><button onClick={() => removeAiChannel(channel.id)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">删除</button></div></div>)}</div>}
                     <div className="mt-4 grid gap-2 md:grid-cols-2"><input value={aiChannelForm.name} onChange={e => setAiChannelForm({ ...aiChannelForm, name: e.target.value })} placeholder="渠道名称，如：生产 AI 主链路" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><select value={aiChannelForm.protocol} onChange={e => setAiChannelForm({ ...aiChannelForm, protocol: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="OPENAI_COMPATIBLE">OpenAI Compatible</option><option value="ANTHROPIC">Anthropic Messages</option><option value="GEMINI">Google Gemini</option><option value="CUSTOM">Custom</option></select><input value={aiChannelForm.baseUrl} onChange={e => setAiChannelForm({ ...aiChannelForm, baseUrl: e.target.value })} placeholder="Base URL" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono" /><input value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} placeholder="模型名称" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><input type="password" value={aiChannelForm.apiKey} onChange={e => setAiChannelForm({ ...aiChannelForm, apiKey: e.target.value })} placeholder="API Key（仅保存时提交）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono md:col-span-2" /><button onClick={saveAiChannel} className="theme-accent-bg rounded-lg px-4 py-2 text-sm font-semibold md:col-span-2">新增 AI 渠道</button></div>
                   </section>
-                  
-                  <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-6">
-                     <div className={`flex items-center justify-between rounded-lg border px-4 py-3 ${aiKeyConfigured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                       <div><p className={`text-sm font-semibold ${aiKeyConfigured ? 'text-emerald-800' : 'text-amber-800'}`}>{aiKeyConfigured ? 'AI 网关已配置' : 'AI 网关尚未配置密钥'}</p><p className="mt-1 text-xs text-slate-600">配置保存在服务器系统设置中；页面只显示密钥掩码，不回显完整密钥。</p></div>
-                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${aiKeyConfigured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{aiKeyConfigured ? 'READY' : 'ACTION REQUIRED'}</span>
-                     </div>
-                     
-                     {/* Provider Selection */}
-                     <div>
-                       <label className="block text-sm font-bold text-gray-700 mb-2">选择接入渠道 (Provider)</label>
-                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                         {Object.entries(PROVIDER_PRESETS).map(([key, preset]) => {
-                           const ProviderIcon = preset.icon;
-                           const isSelected = aiConfig.provider === key;
-                           return (
-                             <div 
-                               key={key}
-                               onClick={() => handleProviderChange(key)}
-                               className={`
-                                 cursor-pointer flex flex-col items-center justify-center p-4 rounded-lg border text-center transition-all group relative
-                                 ${isSelected ? 'bg-purple-50 border-purple-500 text-purple-700 ring-1 ring-purple-500' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}
-                               `}
-                             >
-                               <ProviderIcon className={`w-8 h-8 mb-2 ${isSelected ? 'text-purple-600' : 'text-gray-400 group-hover:text-gray-500'}`} />
-                               <span className="text-sm font-bold">{preset.label}</span>
-                             </div>
-                           );
-                         })}
-                       </div>
-                       <p className="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded border border-gray-100">
-                         <span className="font-bold">说明:</span> {PROVIDER_PRESETS[aiConfig.provider]?.desc}
-                       </p>
-                     </div>
-
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Base URL */}
-                        <div className="md:col-span-2">
-                           <label className="block text-sm font-medium text-gray-700 flex items-center mb-1">
-                             <Globe className="w-4 h-4 mr-1 text-gray-400" /> 接口地址 (Base URL)
-                           </label>
-                           <input
-                             type="text"
-                             className="block w-full rounded-md border-gray-300 border p-2.5 shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm font-mono"
-                             placeholder={aiConfig.provider === 'google' ? '默认空 (官方)。如使用代理请输入...' : 'https://api.openai.com/v1'}
-                             value={aiConfig.baseUrl}
-                             onChange={(e) => setAiConfig({...aiConfig, baseUrl: e.target.value})}
-                           />
-                           <p className="mt-1 text-xs text-gray-500">
-                             {aiConfig.provider === 'google' 
-                               ? '留空则使用 Google 官方 SDK (需魔法)。若使用 NEW API 中转，请填入中转地址 (如 https://api.xyhelper.cn/v1)。' 
-                               : '通常以 /v1 结尾。系统会自动处理 /chat/completions 后缀。'}
-                           </p>
-                         </div>
-
-                         {/* API Key */}
-                         <div className="md:col-span-2">
-                           <label className="block text-sm font-medium text-gray-700 flex items-center mb-1">
-                             <Key className="w-4 h-4 mr-1 text-gray-400" /> API 密钥 (Key)
-                           </label>
-                           <div className="relative">
-                             <input
-                               type="password"
-                               className="block w-full rounded-md border-gray-300 border p-2.5 shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm font-mono"
-                               placeholder={aiConfig.provider === 'google' ? 'AIzaSy...' : 'sk-...'}
-                               value={aiConfig.apiKey}
-                               onChange={(e) => setAiConfig({...aiConfig, apiKey: e.target.value})}
-                             />
-                             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                               <Lock className="h-4 w-4 text-gray-400" />
-                             </div>
-                           </div>
-                         </div>
-
-                         {/* Model Name */}
-                         <div className="md:col-span-2">
-                           <label className="block text-sm font-medium text-gray-700 flex items-center mb-1">
-                             <Cpu className="w-4 h-4 mr-1 text-gray-400" /> 模型名称 (Model Name)
-                           </label>
-                           <input 
-                             type="text" 
-                             className="block w-full rounded-md border-gray-300 border p-2.5 shadow-sm focus:ring-purple-500 focus:border-purple-500 text-sm"
-                             value={aiConfig.model}
-                             onChange={(e) => setAiConfig({...aiConfig, model: e.target.value})}
-                             placeholder="例如: gpt-4o, gemini-pro, deepseek-chat"
-                           />
-                         </div>
-                      </div>
-                      
-                      <div className="pt-4 flex items-center justify-end border-t border-gray-100 space-x-3">
-                        <button 
-                          onClick={handleTestAI}
-                          disabled={isTestLoading}
-                          className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded shadow-sm hover:bg-gray-50 flex items-center disabled:opacity-50"
-                        >
-                          {isTestLoading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin"/> : <Network className="w-4 h-4 mr-2" />} 
-                          测试连接
-                        </button>
-                        <button 
-                          onClick={saveAiSettings}
-                          className="bg-purple-600 text-white px-6 py-2 rounded shadow hover:bg-purple-700 flex items-center"
-                        >
-                          <Save className="w-4 h-4 mr-2" /> 保存配置
-                        </button>
-                      </div>
-                  </div>
                 </div>
               </div>
             )}

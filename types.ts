@@ -197,13 +197,6 @@ export interface RedisConfig {
   dbIndex: number;
 }
 
-export interface AIConfig {
-  provider: 'google' | 'openai' | 'deepseek' | 'zhipu' | 'modelscope' | 'custom';
-  model: string;
-  baseUrl: string;
-  apiKey: string;
-}
-
 export interface SystemSettings {
   appName: string;
   maintenanceMode: boolean;

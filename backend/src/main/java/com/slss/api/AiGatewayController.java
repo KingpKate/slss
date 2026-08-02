@@ -24,7 +24,7 @@ public class AiGatewayController {
 
   @PostMapping("/test")
   @PreAuthorize("hasAuthority('PERM_MANAGE_SYSTEM')")
-  public Map<String, String> test(@RequestBody(required = false) Map<String, String> override) {
-    return Map.of("message", gateway.test(override == null ? Map.of() : override));
+  public Map<String, String> test() {
+    return Map.of("message", gateway.test());
   }
 }
