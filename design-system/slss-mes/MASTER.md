@@ -7,9 +7,9 @@
 ---
 
 **Project:** SLSS MES
-**Generated:** 2026-08-02 06:07:57
-**Category:** Home Decoration & Interior Design
-**Design Dials:** Variance 6/10 (Balanced / Modern) | Motion 4/10 (Standard) | Density 8/10 (Dense / Dashboard)
+**Generated:** 2026-08-02 11:48:16
+**Category:** Analytics Dashboard
+**Design Dials:** Variance 5/10 (Balanced / Modern) | Motion 3/10 (Subtle) | Density 8/10 (Dense / Dashboard)
 
 ---
 
@@ -19,18 +19,18 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#334155` | `--color-primary` |
+| Primary | `#1E40AF` | `--color-primary` |
 | On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#475569` | `--color-secondary` |
-| Accent/CTA | `#059669` | `--color-accent` |
+| Secondary | `#3B82F6` | `--color-secondary` |
+| Accent/CTA | `#D97706` | `--color-accent` |
 | Background | `#F8FAFC` | `--color-background` |
-| Foreground | `#0F172A` | `--color-foreground` |
-| Muted | `#F2F3F4` | `--color-muted` |
-| Border | `#E6E8EA` | `--color-border` |
+| Foreground | `#1E3A8A` | `--color-foreground` |
+| Muted | `#E9EEF6` | `--color-muted` |
+| Border | `#DBEAFE` | `--color-border` |
 | Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#334155` | `--color-ring` |
+| Ring | `#1E40AF` | `--color-ring` |
 
-**Color Notes:** Industrial slate + stock green
+**Color Notes:** Blue data + amber highlights [Accent adjusted from #F59E0B for WCAG 3:1]
 
 ### Typography
 
@@ -76,7 +76,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #059669;
+  background: #D97706;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -93,8 +93,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #334155;
-  border: 2px solid #334155;
+  color: #1E40AF;
+  border: 2px solid #1E40AF;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -133,9 +133,9 @@
 }
 
 .input:focus {
-  border-color: #334155;
+  border-color: #1E40AF;
   outline: none;
-  box-shadow: 0 0 0 3px #33415520;
+  box-shadow: 0 0 0 3px #1E40AF20;
 }
 ```
 
@@ -161,13 +161,13 @@
 
 ## Style Guidelines
 
-**Style:** Soft UI Evolution
+**Style:** Financial Dashboard
 
-**Keywords:** Evolved soft UI, better contrast, modern aesthetics, subtle depth, accessibility-focused, improved shadows, hybrid
+**Keywords:** Revenue metrics, profit/loss visualization, budget tracking, financial ratios, portfolio performance, cash flow, audit trail
 
-**Best For:** Modern enterprise apps, SaaS platforms, health/wellness, modern business tools, professional, hybrid
+**Best For:** Financial reporting, accounting dashboards, portfolio tracking, budget monitoring, banking analytics
 
-**Key Effects:** Improved shadows (softer than flat, clearer than neumorphism), modern (200-300ms), focus visible, WCAG AA/AAA
+**Key Effects:** Number animations (count-up), trend direction indicators, percentage change animations, profit/loss color transitions
 
 ### Page Pattern
 
@@ -181,23 +181,24 @@
 
 ## Motion
 
-**Stagger List** (Standard) — Trigger: load or scroll | Duration: 300-450ms | Easing: `back.out(1.4)`
+**Scroll Reveal** (Subtle) — Trigger: scroll (viewport enter) | Duration: 300-400ms | Easing: `power1.out`
 
 ```js
-gsap.from('.grid-item', { opacity: 0, scale: 0.92, y: 16, duration: 0.4, stagger: { each: 0.06, from: 'start', grid: 'auto' }, ease: 'back.out(1.4)' });
+gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTrigger: { trigger: el, start: 'top 90%', toggleActions: 'play none none reverse' } });
 ```
 
-**Framework notes:** grid: 'auto' lets GSAP infer rows/columns from a CSS grid layout for a natural wave stagger
+**Framework notes:** Requires the ScrollTrigger plugin registered once via gsap.registerPlugin(ScrollTrigger)
 
-- ✅ Combine with from: 'center' for a bento-grid layout to draw the eye inward first
-- ❌ Don't use back.out on dense data tables; the overshoot reads as sloppy on informational UI
-- ⚡ Group DOM writes; avoid interleaving layout reads (getBoundingClientRect) between staggered tweens
+- ✅ Keep the y offset small (8-16px) so it reads as a fade, not a slide
+- ❌ Don't reveal below-the-fold content needed for SEO/crawlers as invisible-by-default without a no-JS fallback
+- ⚡ toggleActions 'play none none reverse' avoids re-triggering on every scroll direction change
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Excessive decoration
+- ❌ Ornate design
+- ❌ No filtering
 
 ### Additional Forbidden Patterns
 
