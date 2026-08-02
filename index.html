@@ -3,46 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SLSS - 服务器全生命周期服务系统</title>
-    <style>
-      /* Prioritize Chinese fonts, fallback to Inter/sans-serif */
-      body { 
-        font-family: "PingFang SC", "Microsoft YaHei", "SimHei", "Inter", sans-serif; 
-        background-color: #f3f4f6; 
-      }
-      
-      /* Global Print Logic */
-      @media print {
-        /* Hide everything by default */
-        body * {
-          visibility: hidden;
-        }
-        
-        /* Only show elements marked as printable-content and their children */
-        .printable-content, .printable-content * {
-          visibility: visible;
-        }
-        
-        /* Position the printable content at top-left to fill the page */
-        .printable-content {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: 100% !important;
-          max-width: none !important;
-          margin: 0 !important;
-          padding: 20px !important;
-          background: white;
-          box-shadow: none !important;
-          border: none !important;
-        }
-
-        /* Hide specific elements explicitly if needed */
-        .no-print { display: none !important; }
-      }
-      
-      /* Scanner and spreadsheet libraries are bundled locally by Vite. */
-    </style>
+    <title>SLSS MES · 制造运营系统</title>
 </head>
   <body>
     <div id="root"></div>

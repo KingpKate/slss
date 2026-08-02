@@ -1,31 +1,14 @@
-
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeContext';
 import { api } from '../services/apiClient';
 import { Permission } from '../types';
-import { 
-  LayoutDashboard, 
-  Wrench, 
-  ScanLine, 
-  Shield, 
-  LogOut, 
-  Menu,
-  Server,
-  Database
-  ,Briefcase
-  ,ShoppingCart
+import {
+  Activity, Briefcase, ChevronRight, LayoutDashboard, LogOut, Menu,
+  ScanLine, Settings2, ShieldCheck, ShoppingCart, Server, Wrench, X
 } from 'lucide-react';
 import { ROLE_LABELS } from '../constants';
-
-const THEME_BRAND_RGB: Record<string, string> = {
-  blue: '37, 99, 235',
-  purple: '124, 58, 237',
-  green: '5, 150, 105',
-  orange: '234, 88, 12',
-  slate: '51, 65, 85',
-};
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
@@ -33,173 +16,78 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [companyLogo, setCompanyLogo] = React.useState('');
-  const [appName, setAppName] = React.useState('SLSS - 服务器全生命周期系统');
+  const [appName, setAppName] = React.useState('SLSS · 服务器全生命周期系统');
+  const [systemOnline, setSystemOnline] = React.useState(true);
 
-  const applyLogoColor = (src: string) => {
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 48; canvas.height = 48;
-      const context = canvas.getContext('2d');
-      if (!context) return;
-      context.drawImage(image, 0, 0, 48, 48);
-      const pixels = context.getImageData(0, 0, 48, 48).data;
-      let chosen = { r: 22, g: 163, b: 74, score: -1 };
-      for (let index = 0; index < pixels.length; index += 4) {
-        const alpha = pixels[index + 3] / 255;
-        if (alpha < 0.5) continue;
-        const r = pixels[index], g = pixels[index + 1], b = pixels[index + 2];
-        const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        const saturation = max === 0 ? 0 : (max - min) / max;
-        const brightness = max / 255;
-        const score = saturation * 0.75 + brightness * 0.25;
-        if (score > chosen.score) chosen = { r, g, b, score };
-      }
-      const rgb = `${chosen.r}, ${chosen.g}, ${chosen.b}`;
-      const dark = `${Math.round(chosen.r * 0.42)}, ${Math.round(chosen.g * 0.42)}, ${Math.round(chosen.b * 0.42)}`;
-      document.documentElement.style.setProperty('--slss-brand-rgb', rgb);
-      document.documentElement.style.setProperty('--slss-brand-dark-rgb', dark);
-    };
-    image.src = src;
-  };
-
-  React.useEffect(() => { if (companyLogo) applyLogoColor(companyLogo); }, [companyLogo]);
   React.useEffect(() => {
     if (!user) return;
-    api.systemSettings().then((settings: any) => { if (settings?.appName) setAppName(settings.appName); }).catch(() => undefined);
-    api.companyLogo().then(result => {
-      if (result.value) {
-        setCompanyLogo(result.value);
-      }
-    }).catch(() => undefined);
+    Promise.all([api.systemSettings(), api.companyLogo()]).then(([settings, logo]) => {
+      if ((settings as any)?.appName) setAppName((settings as any).appName);
+      if ((logo as any)?.value) setCompanyLogo((logo as any).value);
+      setSystemOnline(true);
+    }).catch(() => setSystemOnline(false));
   }, [user?.username]);
+
   React.useEffect(() => {
-    const onSettingsUpdated = (event: Event) => { const value = (event as CustomEvent<any>).detail; if (value?.appName) setAppName(value.appName); };
+    const onSettingsUpdated = (event: Event) => {
+      const value = (event as CustomEvent<any>).detail;
+      if (value?.appName) setAppName(value.appName);
+      if (value?.logo) setCompanyLogo(value.logo);
+    };
     window.addEventListener('slss-system-settings-updated', onSettingsUpdated);
     return () => window.removeEventListener('slss-system-settings-updated', onSettingsUpdated);
   }, []);
 
   if (!user) return <>{children}</>;
 
-  const NavItem = ({ to, icon: Icon, label, permission }: { to: string; icon: any; label: string; permission: Permission }) => {
-    // Check if user has the required permission
-    if (!user.permissions.includes(permission)) return null;
+  const nav = [
+    { to: '/dashboard', icon: LayoutDashboard, label: '生产运营总览', permission: 'VIEW_DASHBOARD' as Permission, group: '运营中心' },
+    { to: '/production/mes', icon: ScanLine, label: '生产 MES 工作台', permission: 'VIEW_PRODUCTION' as Permission, group: '生产管理' },
+    { to: '/orders', icon: Wrench, label: '售后工单管理', permission: 'VIEW_ORDERS' as Permission, group: '服务管理' },
+    { to: '/sales-procurement', icon: Briefcase, label: '销售立项', permission: 'MANAGE_SALES' as Permission, group: '协同管理' },
+    { to: '/procurement', icon: ShoppingCart, label: '采购协同', permission: 'MANAGE_PROCUREMENT' as Permission, group: '协同管理' },
+    { to: '/admin', icon: Settings2, label: '系统管理配置', permission: 'MANAGE_SYSTEM' as Permission, group: '系统设置' },
+  ];
 
-    const active = location.pathname === to;
-    
-    // Dynamic styles based on theme
-    const activeClass = `${themeConfig.classes.bgLight} ${themeConfig.classes.text} border-r-4 ${themeConfig.classes.border.replace('border-', 'border-l-').replace('200', '600')}`; // Use border-l-color hack or similar? Tailwind border colors are just border-blue-600.
-    // Actually, border-r-4 usually needs a border color. Let's use inline style or map correctly.
-    // The `themeConfig.classes.text` usually maps to a color like `text-blue-600`.
-    // The active border should match.
-    const activeBorderColor = themeConfig.color === 'blue' ? 'border-blue-700' : 
-                              themeConfig.color === 'purple' ? 'border-purple-700' :
-                              themeConfig.color === 'green' ? 'border-emerald-700' :
-                              themeConfig.color === 'orange' ? 'border-orange-700' : 'border-slate-700';
-
-    return (
-      <Link
-        to={to}
-        onClick={() => setSidebarOpen(false)}
-        className={`flex items-center px-6 py-3 text-sm font-medium transition-colors ${
-          active 
-            ? `${themeConfig.classes.bgLight} ${themeConfig.classes.text} border-r-4 ${activeBorderColor}` 
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-        }`}
-      >
-        <Icon className="w-5 h-5 mr-3" />
-        {label}
-      </Link>
-    );
+  const NavItem = ({ item }: { item: typeof nav[number] }) => {
+    if (!user.permissions.includes(item.permission)) return null;
+    const active = location.pathname === item.to || (item.to === '/production/mes' && location.pathname.startsWith('/production'));
+    const Icon = item.icon;
+    return <Link to={item.to} onClick={() => setSidebarOpen(false)} className={`slss-nav-link flex min-h-[44px] items-center gap-3 px-5 py-3 text-sm ${active ? 'slss-nav-link-active' : ''}`}>
+      <Icon size={18} strokeWidth={active ? 2.4 : 1.9} aria-hidden="true" />
+      <span className="truncate">{item.label}</span>
+      {active && <ChevronRight className="ml-auto" size={15} aria-hidden="true" />}
+    </Link>;
   };
 
-  return (
-    <div className="min-h-screen flex bg-gray-50">
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        <div style={{ backgroundColor: `rgb(${THEME_BRAND_RGB[themeConfig.color] || THEME_BRAND_RGB.green})` }} className="flex items-center justify-center h-16 border-b border-white/10 text-white transition-colors duration-300">
-          <Server className="w-7 h-7 mr-2 text-white/90" />
-          <span className="text-lg font-bold tracking-wide">{appName}</span>
+  return <div className="slss-shell flex">
+    {sidebarOpen && <button aria-label="关闭侧栏" className="fixed inset-0 z-20 bg-slate-950/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+    <aside className={`slss-sidebar fixed inset-y-0 left-0 z-30 flex w-[276px] flex-col transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className="slss-brand flex min-h-[84px] items-center gap-3 px-5 text-white">
+        <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-white/25 bg-white/15 shadow-sm">
+          {companyLogo ? <img src={companyLogo} alt="公司 LOGO" className="h-full w-full object-contain" /> : <Server size={23} aria-hidden="true" />}
         </div>
-
-        <nav className="mt-6">
-          <NavItem to="/dashboard" icon={LayoutDashboard} label="数据仪表盘" permission="VIEW_DASHBOARD" />
-          
-          <NavItem 
-            to="/orders" 
-            icon={Wrench} 
-            label="售后工单管理" 
-            permission="VIEW_ORDERS" 
-          />
-          
-          <NavItem 
-            to="/production/mes" 
-            icon={ScanLine} 
-            label="生产 MES 工作台" 
-            permission="VIEW_PRODUCTION" 
-          />
-          <NavItem to="/sales-procurement" icon={Briefcase} label="销售立项" permission="MANAGE_SALES" />
-          <NavItem to="/procurement" icon={ShoppingCart} label="采购协同" permission="MANAGE_PROCUREMENT" />
-          
-          <NavItem 
-            to="/admin" 
-            icon={Shield} 
-            label="系统管理配置" 
-            permission="MANAGE_SYSTEM" 
-          />
-        </nav>
-
-        <div className="absolute bottom-0 w-full border-t border-gray-200 p-4 bg-gray-50">
-          <div className="flex items-center mb-4">
-            <div className={`w-8 h-8 rounded-full ${themeConfig.classes.bgLight} flex items-center justify-center ${themeConfig.classes.text} font-bold border ${themeConfig.classes.border}`}>
-              {user.username[0].toUpperCase()}
-            </div>
-            <div className="ml-3 overflow-hidden">
-              <p className="text-sm font-medium text-gray-700 truncate" title={user.username}>{user.username}</p>
-              <p className="text-xs text-gray-500">{ROLE_LABELS[user.role]}</p>
-            </div>
-          </div>
-          <button
-            onClick={logout}
-            className="flex items-center w-full px-2 py-2 text-sm font-medium text-red-600 rounded-md hover:bg-red-50 transition-colors"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            退出登录
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white border-b border-gray-200 flex items-center px-4 lg:px-6 h-16 justify-between shadow-sm">
-           <div className="flex items-center font-bold text-gray-800">
-              <Server className={`w-6 h-6 ${themeConfig.classes.text} mr-2`} /> {appName}
-           </div>
-           <div className="flex items-center gap-3">
-             <div title="公司 LOGO（请在系统管理配置中维护）" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
-               {companyLogo ? <img src={companyLogo} alt="公司 LOGO" className="h-8 max-w-[120px] object-contain" /> : <span className="flex h-8 items-center gap-1.5 px-1 text-xs font-semibold text-slate-500"><span className="grid h-6 w-6 place-items-center rounded border border-dashed border-slate-400 text-[10px]">LOGO</span>导入公司标识</span>}
-             </div>
-             <button onClick={() => setSidebarOpen(true)} className="text-gray-500 p-2 rounded hover:bg-gray-100 lg:hidden">
-               <Menu className="w-6 h-6" />
-             </button>
-           </div>
-        </header>
-
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-gray-50/50">
-          {children}
-        </main>
+        <div className="min-w-0"><p className="truncate text-sm font-semibold tracking-wide">{appName}</p><p className="mt-1 text-[10px] uppercase tracking-[.18em] text-white/65">Manufacturing control</p></div>
+        <button aria-label="关闭侧栏" className="ml-auto rounded-lg p-2 text-white/70 hover:bg-white/10 lg:hidden" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
       </div>
+      <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-[11px] text-slate-500"><span className="slss-status-dot" />系统在线 <span className="ml-auto font-mono text-slate-400">v2.1</span></div>
+      <nav className="flex-1 overflow-y-auto py-4">
+        {['运营中心', '生产管理', '服务管理', '协同管理', '系统设置'].map(group => <React.Fragment key={group}>
+          <p className="px-5 pb-2 pt-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">{group}</p>
+          {nav.filter(item => item.group === group).map(item => <NavItem key={item.to} item={item} />)}
+        </React.Fragment>)}
+      </nav>
+      <div className="border-t border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3 flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-[rgb(var(--slss-brand-rgb))] text-sm font-bold text-white">{user.username.slice(0, 1).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{user.username}</p><p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role] || user.role}</p></div></div>
+        <button onClick={logout} className="flex min-h-[42px] w-full items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-red-600"><LogOut size={16} />退出登录</button>
+      </div>
+    </aside>
+    <div className="flex min-w-0 flex-1 flex-col">
+      <header className="slss-topbar sticky top-0 z-10 flex min-h-[68px] items-center justify-between gap-4 px-4 lg:px-8">
+        <div className="flex min-w-0 items-center gap-3"><button aria-label="打开侧栏" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="min-w-0"><p className="truncate text-xs font-semibold uppercase tracking-[.16em] text-slate-400">SLSS / Workspace</p><p className="truncate text-base font-bold text-[var(--color-primary)]">{nav.find(item => location.pathname === item.to || (item.to === '/production/mes' && location.pathname.startsWith('/production')))?.label || '系统工作台'}</p></div></div>
+        <div className="flex items-center gap-3"><div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs md:flex ${systemOnline ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}><Activity size={13} />{systemOnline ? 'API 已连接' : 'API 连接异常'}</div>{companyLogo && <img src={companyLogo} alt="公司 LOGO" className="h-8 max-w-[120px] object-contain" />}<ShieldCheck size={19} className="text-slate-400" aria-hidden="true" /></div>
+      </header>
+      <main className="slss-page flex-1 overflow-y-auto p-4 lg:p-7">{children}</main>
     </div>
-  );
+  </div>;
 };

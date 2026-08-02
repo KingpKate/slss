@@ -1,114 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
-import { Server, Lock } from 'lucide-react';
+import { Activity, Lock, Server, ShieldCheck } from 'lucide-react';
 import { api } from '../services/apiClient';
 
 const Login: React.FC = () => {
   const { login, user, loginError } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [appName, setAppName] = useState('SLSS - 服务器全生命周期系统');
-  const [companyLogo, setCompanyLogo] = useState('');
-
-  // Branding is intentionally loaded from the same public settings endpoints
-  // used by the authenticated layout. This keeps the login page in sync with
-  // the name and logo configured in System Management, without requiring a
-  // session just to render the login screen.
-  useEffect(() => {
-    let active = true;
-    Promise.all([api.systemSettings(), api.companyLogo()])
-      .then(([settings, logo]) => {
-        if (!active) return;
-        if (settings?.appName) {
-          setAppName(settings.appName);
-          document.title = settings.appName;
-        }
-        if (logo?.value) setCompanyLogo(logo.value);
-      })
-      .catch(() => {
-        // Login must remain usable when the optional branding request fails.
-      });
-    return () => { active = false; };
-  }, []);
-
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [user, navigate]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    
-    const success = await login(username, password);
-    if (success) {
-      navigate('/dashboard');
-    } else {
-      setError(loginError || '用户名或密码错误');
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
-        <div className="text-center mb-8">
-          {companyLogo ? (
-            <img src={companyLogo} alt={`${appName} Logo`} className="mx-auto h-12 max-w-[220px] object-contain" />
-          ) : (
-            <Server className="mx-auto h-12 w-12 text-blue-600" />
-          )}
-          <h2 className="mt-4 text-3xl font-extrabold text-gray-900">{appName}</h2>
-          <p className="mt-2 text-sm text-gray-600">系统登录</p>
-        </div>
-        
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">用户名</label>
-            <input 
-              type="text" 
-              required 
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="请输入用户名"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">密码</label>
-            <input 
-              type="password" 
-              required 
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="请输入密码"
-            />
-          </div>
-          
-          {error && <div className="text-red-500 text-sm text-center">{error}</div>}
-
-          <div>
-            <button 
-              type="submit" 
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
-            >
-              <Lock className="w-4 h-4 mr-2" /> 登录系统
-            </button>
-          </div>
-        </form>
-        <div className="mt-4 text-center text-xs text-gray-400">
-           <p>演示账号: admin / admin123</p>
-           <p>其他角色密码: 123456</p>
-        </div>
-      </div>
-    </div>
-  );
+  const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState('');
+  const [appName, setAppName] = useState('SLSS MES · 制造运营系统'); const [logo, setLogo] = useState(''); const [submitting, setSubmitting] = useState(false);
+  useEffect(() => { let active = true; Promise.all([api.systemSettings(), api.companyLogo()]).then(([settings, image]) => { if (!active) return; if ((settings as any)?.appName) { setAppName((settings as any).appName); document.title = (settings as any).appName; } if ((image as any)?.value) setLogo((image as any).value); }).catch(() => undefined); return () => { active = false; }; }, []);
+  useEffect(() => { if (user) navigate('/dashboard'); }, [user, navigate]);
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setError(''); setSubmitting(true); try { if (await login(username.trim(), password)) navigate('/dashboard'); else setError(loginError || '用户名或密码错误'); } finally { setSubmitting(false); } };
+  return <main className="grid min-h-screen place-items-center bg-[var(--color-background)] p-4"><div className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-[1.05fr_.95fr]">
+    <section className="relative hidden overflow-hidden bg-[var(--color-primary)] p-10 text-white lg:block"><div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-blue-400/15 blur-3xl" /><div className="relative flex h-full flex-col justify-between"><div><div className="mb-10 flex items-center gap-3">{logo ? <img src={logo} alt="公司 LOGO" className="h-12 w-12 rounded-xl bg-white/10 object-contain p-1" /> : <div className="grid h-12 w-12 place-items-center rounded-xl bg-white/10"><Server size={25} /></div>}<span className="text-sm font-bold tracking-wide">{appName}</span></div><p className="text-xs font-bold uppercase tracking-[.2em] text-emerald-300">Manufacturing control</p><h1 className="mt-4 max-w-md text-4xl font-bold leading-tight">让每一次扫码，都成为可追溯的生产事实。</h1><p className="mt-5 max-w-md text-sm leading-7 text-slate-300">统一管理生产、售后、资产生命周期与交付风险。登录后进入当前账号授权的工作台。</p></div><div className="flex items-center gap-6 text-xs text-slate-300"><span className="flex items-center gap-2"><Activity size={15} className="text-emerald-300" />API 实时连接</span><span className="flex items-center gap-2"><ShieldCheck size={15} className="text-emerald-300" />RBAC 安全控制</span></div></div></section>
+    <section className="p-7 sm:p-10"><div className="mx-auto max-w-md"><div className="mb-8 lg:hidden"><div className="mb-5 flex items-center gap-3">{logo ? <img src={logo} alt="公司 LOGO" className="h-11 w-11 object-contain" /> : <Server className="text-[var(--color-primary)]" size={28} />}<span className="font-bold text-[var(--color-primary)]">{appName}</span></div></div><p className="text-xs font-bold uppercase tracking-[.18em] text-slate-400">Secure sign in</p><h2 className="mt-2 text-3xl font-bold tracking-tight text-[var(--color-primary)]">登录工作台</h2><p className="mt-2 text-sm text-slate-500">使用管理员为你分配的账号继续。</p><form onSubmit={submit} className="mt-8 space-y-5"><div><label htmlFor="username" className="mb-2 block text-sm font-semibold text-slate-700">用户名</label><input id="username" autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} className="slss-input" placeholder="请输入用户名" /></div><div><label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-700">密码</label><input id="password" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} className="slss-input" placeholder="请输入密码" /></div>{error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}<button disabled={submitting} className="slss-btn-primary min-h-[46px] w-full disabled:cursor-not-allowed disabled:opacity-60"><Lock size={16} />{submitting ? '验证中…' : '登录系统'}</button></form><p className="mt-8 border-t border-slate-100 pt-5 text-center text-xs text-slate-400">登录后可用模块由用户权限实时决定</p></div></section>
+  </div></main>;
 };
-
 export default Login;
