@@ -111,7 +111,14 @@ public class AiChannelService {
         return Map.of("models", configured, "source", "configured", "message", "Anthropic 官方接口不提供模型目录，请在渠道中配置模型");
       }
       var result = discoverModelIds(channel);
-      return Map.of("models", result, "source", "remote", "selectedModel", channel.getModel() == null ? "" : channel.getModel());
+      // Model discovery is also the canonical way to initialize a channel.
+      // Persist the first remote model here so the next test/chat request does
+      // not need a second, stale-version PUT from the browser.
+      if ((channel.getModel() == null || channel.getModel().isBlank()) && !result.isEmpty()) {
+        channel.setModel(result.get(0));
+        channel = channels.save(channel);
+      }
+      return Map.of("models", result, "source", "remote", "selectedModel", channel.getModel() == null ? "" : channel.getModel(), "version", channel.getVersion());
     } catch (Exception ex) { throw new IllegalStateException("模型发现失败：" + trim(ex.getMessage()), ex); }
   }
 

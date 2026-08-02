@@ -24,6 +24,56 @@ const PERMISSION_DOMAIN_LABELS: Record<string, string> = {
   all: '全部业务域', production: '生产管理', afterSales: '售后管理', salesProcurement: '销售与采购', system: '系统管理'
 };
 
+/**
+ * API gateway onboarding examples.  Keep these examples close to the form so
+ * an operator can see exactly which URL shape is expected before saving a
+ * channel.  The backend treats baseUrl as the provider root and appends the
+ * discovery/chat paths itself (for example `/v1` -> `/v1/models` and
+ * `/v1/chat/completions`).
+ */
+const AI_CHANNEL_PRESETS = [
+  {
+    key: 'openai-compatible',
+    label: 'OpenAI / New API',
+    protocol: 'OPENAI_COMPATIBLE',
+    baseUrl: 'https://api.openai.com/v1',
+    model: '',
+    discovery: 'GET /v1/models',
+    chat: 'POST /v1/chat/completions',
+    description: '适用于 OpenAI、New API、DeepSeek、通义以及其他 OpenAI-compatible 网关。',
+  },
+  {
+    key: 'gemini',
+    label: 'Google Gemini',
+    protocol: 'GEMINI',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    model: '',
+    discovery: 'GET /v1beta/models?key=API_KEY',
+    chat: 'POST /v1beta/models/{model}:generateContent',
+    description: 'Gemini 使用 Google API 根地址，系统会自动补齐 v1beta 路径。',
+  },
+  {
+    key: 'anthropic',
+    label: 'Anthropic Claude',
+    protocol: 'ANTHROPIC',
+    baseUrl: 'https://api.anthropic.com',
+    model: 'claude-3-5-sonnet-latest',
+    discovery: '不提供标准 /models，需填写模型名',
+    chat: 'POST /v1/messages',
+    description: 'Anthropic 官方接口没有统一模型目录，因此需要手动填写模型名称。',
+  },
+  {
+    key: 'custom',
+    label: '自定义 API',
+    protocol: 'CUSTOM',
+    baseUrl: 'https://your-gateway.example.com/v1',
+    model: '',
+    discovery: 'GET {Base URL}/models',
+    chat: 'POST {Base URL}/chat/completions',
+    description: '自定义网关请提供 OpenAI-compatible 响应格式；Base URL 不要填写 /models。',
+  },
+] as const;
+
 const normalizePermissionList = (values: unknown): Permission[] =>
   (Array.isArray(values) ? values : [])
     .map(value => String(value).replace(/^PERM_/, '')) as Permission[];
@@ -306,16 +356,31 @@ const AdminPanel: React.FC = () => {
     } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || '模型发现失败，请检查 API 地址和密钥' }); }
     finally { setAiModelsLoading(false); }
   };
+  const applyAiPreset = (preset: typeof AI_CHANNEL_PRESETS[number]) => {
+    setAiChannelForm(previous => ({
+      ...previous,
+      protocol: preset.protocol,
+      provider: preset.key === 'openai-compatible' ? 'openai-compatible' : preset.key,
+      baseUrl: preset.baseUrl,
+      model: preset.model,
+    }));
+    setAiModelOptions([]);
+    setSaveStatus({ type: 'success', message: `已套用「${preset.label}」配置样例，请填写名称和 API Key` });
+  };
   const saveAiChannel = async () => {
     try {
       if (!aiChannelForm.name.trim() || !aiChannelForm.baseUrl.trim()) throw new Error('渠道名称和接口地址不能为空');
       const payload = { ...aiChannelForm, provider: aiChannelForm.protocol === 'OPENAI_COMPATIBLE' ? 'openai-compatible' : aiChannelForm.protocol.toLowerCase() };
       let saved = aiChannelForm.id ? await api.updateAiChannel(aiChannelForm.id, payload) : await api.createAiChannel(payload);
-      if (!saved.model && saved.id) {
+      if (saved.id) {
         try {
           const discovered = await api.aiChannelModels(saved.id);
           const firstModel = Array.isArray(discovered?.models) ? discovered.models.find((value: unknown) => typeof value === 'string' && value.trim()) : null;
-          if (firstModel) saved = await api.updateAiChannel(saved.id, { ...payload, model: firstModel, version: saved.version });
+          // /models persists the first model and increments the optimistic-lock
+          // version server-side. Re-read the channel instead of issuing a
+          // second PUT with the stale version returned by the initial save.
+          const latest = await api.aiChannels();
+          saved = latest.find((item: any) => item.id === saved.id) || { ...saved, model: firstModel || saved.model };
         } catch (discoveryError: any) {
           setSaveStatus({ type: 'error', message: `渠道已保存，但模型自动发现失败：${discoveryError?.message || '请稍后重试'}` });
         }
@@ -698,7 +763,7 @@ const AdminPanel: React.FC = () => {
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-violet-950">AI 渠道中心</h4><p className="mt-1 text-xs text-slate-600">多供应商统一接入 · 优先级故障转移 · 权重路由 · 服务端加密密钥</p></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">{aiChannels.filter(c => c.enabled !== false).length}/{aiChannels.length} 已启用</span></div>
                     <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">渠道总数</p><p className="mt-1 text-xl font-bold text-slate-900">{aiChannels.length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">在线渠道</p><p className="mt-1 text-xl font-bold text-emerald-600">{aiChannels.filter(c => c.lastStatus === 'UP').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">故障渠道</p><p className="mt-1 text-xl font-bold text-rose-600">{aiChannels.filter(c => c.lastStatus === 'DOWN').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">路由策略</p><p className="mt-1 text-sm font-bold text-violet-700">优先级 + 权重</p></div></div>
                     <div className="mt-4 space-y-2">{aiChannels.length === 0 ? <div className="rounded-xl border border-dashed border-violet-200 bg-white/70 px-4 py-8 text-center text-xs text-slate-500">尚未配置 AI 渠道，请从下方添加 OpenAI、Anthropic、Gemini 或自定义兼容接口。</div> : aiChannels.map((channel, index) => <div key={channel.id} className="rounded-xl border border-white bg-white px-3 py-3 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${channel.enabled === false ? 'bg-slate-300' : channel.lastStatus === 'UP' ? 'bg-emerald-500' : channel.lastStatus === 'DOWN' ? 'bg-red-500' : 'bg-amber-400'}`} /><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{index + 1}. {channel.name} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{channel.protocol}</span>{channel.enabled === false && <span className="ml-1 text-[10px] text-slate-400">已停用</span>}</p><p className="truncate text-xs text-slate-500">{channel.baseUrl} · {channel.model}</p></div></div><div className="flex items-center gap-1.5"><span className="rounded bg-slate-50 px-2 py-1 text-[10px] text-slate-500">P{channel.priority} / W{channel.weight}</span><button onClick={() => testAiChannel(channel.id)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">测试</button><button onClick={() => editAiChannel(channel)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">编辑</button><button onClick={() => removeAiChannel(channel.id)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">删除</button></div></div>{channel.lastError && <p className="mt-2 rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">最近错误：{channel.lastError}</p>}</div>)}</div>
-                    <div className="mt-5 rounded-xl border border-violet-100 bg-white/80 p-4"><div className="mb-3 flex items-center justify-between"><div><h5 className="text-sm font-semibold text-slate-800">{aiChannelForm.id ? '编辑渠道' : '添加渠道'}</h5><p className="text-[11px] text-slate-500">支持标准协议和任意 OpenAI Compatible 自定义网关。</p></div>{aiChannelForm.id && <button onClick={resetAiChannelForm} className="text-xs text-slate-500 hover:text-violet-700">取消编辑</button>}</div><div className="grid gap-2 md:grid-cols-2"><input value={aiChannelForm.name} onChange={e => setAiChannelForm({ ...aiChannelForm, name: e.target.value })} placeholder="渠道名称，如：生产 AI 主链路" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><select value={aiChannelForm.protocol} onChange={e => setAiChannelForm({ ...aiChannelForm, protocol: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="OPENAI_COMPATIBLE">OpenAI Compatible（OpenAI / DeepSeek / 通义等）</option><option value="ANTHROPIC">Anthropic Messages</option><option value="GEMINI">Google Gemini</option><option value="CUSTOM">Custom API</option></select><input value={aiChannelForm.baseUrl} onChange={e => setAiChannelForm({ ...aiChannelForm, baseUrl: e.target.value })} placeholder="Base URL / API 地址" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono" /><input value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} placeholder="默认模型名称" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><input type="password" value={aiChannelForm.apiKey} onChange={e => setAiChannelForm({ ...aiChannelForm, apiKey: e.target.value })} placeholder={aiChannelForm.id ? '留空则保留原 API Key' : 'API Key（服务端加密保存）'} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono md:col-span-2" /><div className="grid grid-cols-3 gap-2 md:col-span-2"><label className="text-[11px] text-slate-500">优先级<input type="number" min="0" max="10000" value={aiChannelForm.priority} onChange={e => setAiChannelForm({ ...aiChannelForm, priority: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">权重<input type="number" min="1" max="10000" value={aiChannelForm.weight} onChange={e => setAiChannelForm({ ...aiChannelForm, weight: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">超时(ms)<input type="number" min="1000" max="300000" value={aiChannelForm.timeoutMs} onChange={e => setAiChannelForm({ ...aiChannelForm, timeoutMs: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label></div><label className="inline-flex items-center gap-2 text-xs text-slate-600 md:col-span-2"><input type="checkbox" checked={aiChannelForm.enabled} onChange={e => setAiChannelForm({ ...aiChannelForm, enabled: e.target.checked })} />启用该渠道（未启用渠道不会参与路由）</label><div className="flex gap-2 md:col-span-2"><button onClick={saveAiChannel} className="theme-accent-bg rounded-lg px-4 py-2 text-sm font-semibold">{aiChannelForm.id ? '保存渠道修改' : '新增 AI 渠道'}</button>{!aiChannelForm.id && <button onClick={resetAiChannelForm} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">重置</button>}</div></div></div>
+                    <div className="mt-5 rounded-xl border border-violet-100 bg-white/80 p-4"><div className="mb-3 flex items-center justify-between"><div><h5 className="text-sm font-semibold text-slate-800">{aiChannelForm.id ? '编辑渠道' : '添加渠道'}</h5><p className="text-[11px] text-slate-500">支持标准协议和任意 OpenAI Compatible 自定义网关。</p></div>{aiChannelForm.id && <button onClick={resetAiChannelForm} className="text-xs text-slate-500 hover:text-violet-700">取消编辑</button>}</div><div className="mb-3 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-cyan-900">配置样例</span><select defaultValue="" onChange={e => { const preset = AI_CHANNEL_PRESETS.find(item => item.key === e.target.value); if (preset) applyAiPreset(preset); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-xs text-cyan-900"><option value="">选择 API 类型自动填充示例</option>{AI_CHANNEL_PRESETS.map(preset => <option key={preset.key} value={preset.key}>{preset.label}</option>)}</select></div><p className="mt-2 text-[11px] leading-5 text-cyan-800">Base URL 只填写服务根地址（例如 <code>https://api.example.com/v1</code>），系统会自动请求 <code>/models</code> 和 <code>/chat/completions</code>；不要把 <code>/models</code> 直接填入 Base URL。</p></div><div className="grid gap-2 md:grid-cols-2"><input value={aiChannelForm.name} onChange={e => setAiChannelForm({ ...aiChannelForm, name: e.target.value })} placeholder="渠道名称，如：生产 AI 主链路" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><select value={aiChannelForm.protocol} onChange={e => setAiChannelForm({ ...aiChannelForm, protocol: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="OPENAI_COMPATIBLE">OpenAI Compatible（OpenAI / DeepSeek / 通义等）</option><option value="ANTHROPIC">Anthropic Messages</option><option value="GEMINI">Google Gemini</option><option value="CUSTOM">Custom API</option></select><input value={aiChannelForm.baseUrl} onChange={e => setAiChannelForm({ ...aiChannelForm, baseUrl: e.target.value })} placeholder="Base URL / API 地址（不含 /models）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono" /><input value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} placeholder="默认模型名称（可留空，保存后自动发现）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><input type="password" value={aiChannelForm.apiKey} onChange={e => setAiChannelForm({ ...aiChannelForm, apiKey: e.target.value })} placeholder={aiChannelForm.id ? '留空则保留原 API Key' : 'API Key（服务端加密保存）'} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono md:col-span-2" /><div className="grid grid-cols-3 gap-2 md:col-span-2"><label className="text-[11px] text-slate-500">优先级<input type="number" min="0" max="10000" value={aiChannelForm.priority} onChange={e => setAiChannelForm({ ...aiChannelForm, priority: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">权重<input type="number" min="1" max="10000" value={aiChannelForm.weight} onChange={e => setAiChannelForm({ ...aiChannelForm, weight: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">超时(ms)<input type="number" min="1000" max="300000" value={aiChannelForm.timeoutMs} onChange={e => setAiChannelForm({ ...aiChannelForm, timeoutMs: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label></div><label className="inline-flex items-center gap-2 text-xs text-slate-600 md:col-span-2"><input type="checkbox" checked={aiChannelForm.enabled} onChange={e => setAiChannelForm({ ...aiChannelForm, enabled: e.target.checked })} />启用该渠道（未启用渠道不会参与路由）</label><div className="flex gap-2 md:col-span-2"><button onClick={saveAiChannel} className="theme-accent-bg rounded-lg px-4 py-2 text-sm font-semibold">{aiChannelForm.id ? '保存渠道修改' : '新增 AI 渠道'}</button>{!aiChannelForm.id && <button onClick={resetAiChannelForm} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">重置</button>}</div></div></div>
                   {aiChannelForm.id && aiModelOptions.length > 0 && <div className="mb-6 rounded-xl border border-cyan-100 bg-cyan-50/60 p-3"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-cyan-900">已发现模型（点击填入当前渠道）</p><button type="button" disabled={aiModelsLoading} onClick={() => discoverAiModels(aiChannelForm.id)} className="text-[11px] text-cyan-700 hover:underline disabled:opacity-50">{aiModelsLoading ? '刷新中…' : '刷新模型'}</button></div><div className="mt-2 flex flex-wrap gap-1.5">{aiModelOptions.map(model => <button type="button" key={model} onClick={() => setAiChannelForm(previous => ({ ...previous, model }))} className={`rounded-full border px-2.5 py-1 text-[11px] transition ${aiChannelForm.model === model ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-cyan-200 bg-white text-cyan-800 hover:bg-cyan-100'}`}>{model}</button>)}</div></div>}
                     <div className="mt-3 rounded-lg border border-dashed border-violet-200 bg-violet-50/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-semibold text-violet-800">模型自动发现</p><p className="text-[11px] text-violet-600">保存渠道后从 /models 获取远端模型，避免写死模型名称。</p></div><button type="button" disabled={!aiChannelForm.id || aiModelsLoading} onClick={() => discoverAiModels(aiChannelForm.id)} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{aiModelsLoading ? '发现中…' : '发现模型'}</button></div>{aiModelOptions.length > 0 && <select value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} className="mt-2 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"><option value="">选择默认模型</option>{aiModelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select>}</div>
                   </section>
