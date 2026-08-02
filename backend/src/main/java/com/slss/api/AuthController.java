@@ -5,6 +5,7 @@ import jakarta.validation.*; import jakarta.validation.constraints.NotBlank; imp
  public AuthController(UserRepository u,PasswordEncoder e,JwtService j,AuditService a,RefreshTokenRepository r,PermissionCacheService p,LoginAttemptService la,com.slss.service.CaptchaService captcha){users=u;encoder=e;jwt=j;audit=a;refreshTokens=r;permissionCache=p;loginAttempts=la;this.captcha=captcha;}
  public record LoginRequest(@NotBlank String username,@NotBlank String password,String captchaToken,String captchaAnswer){ public LoginRequest(String username,String password){this(username,password,null,null);} }
  public record LoginResponse(String token,String tokenType,String username,List<String> authorities,boolean mustChangePassword){}
+ public record CaptchaStatusResponse(boolean enabled, boolean required){}
  @GetMapping("/me") @Transactional(readOnly=true) public LoginResponse me(Principal principal){
   if(principal==null)throw unauthorized();
   var u=users.findByUsernameAndStatus(principal.getName(),"ACTIVE").orElseThrow(this::unauthorized);
@@ -12,7 +13,7 @@ import jakarta.validation.*; import jakarta.validation.constraints.NotBlank; imp
   return new LoginResponse(null,"Bearer",u.getUsername(),authorities,false);
  }
 
- @GetMapping("/captcha/status") public com.slss.service.CaptchaService.Status captchaStatus(@RequestParam String username){ var u=users.findByUsernameAndStatus(username,"ACTIVE").orElse(null); return captcha.status(username,u==null?0L:(long)u.getFailedLoginAttempts()); }
+ @GetMapping("/captcha/status") public CaptchaStatusResponse captchaStatus(@RequestParam String username){ var u=users.findByUsernameAndStatus(username,"ACTIVE").orElse(null); var result=captcha.status(username,u==null?0L:(long)u.getFailedLoginAttempts()); return new CaptchaStatusResponse(result.enabled(), result.required()); }
  @PostMapping("/captcha/challenge") public com.slss.service.CaptchaService.Challenge captchaChallenge(@RequestBody Map<String,String> body,HttpServletRequest request){ String username=body==null?null:body.get("username"); if(username==null||username.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"用户名不能为空"); var u=users.findByUsernameAndStatus(username,"ACTIVE").orElseThrow(this::unauthorized); var st=captcha.status(username,(long)u.getFailedLoginAttempts()); if(!st.required()) throw new ResponseStatusException(HttpStatus.CONFLICT,"当前不需要验证码"); return captcha.issue(username,request.getRemoteAddr()); }
  @PostMapping("/login") @Transactional public LoginResponse login(@Valid @RequestBody LoginRequest r,HttpServletRequest request,HttpServletResponse response){
   var u=users.findByUsernameAndStatus(r.username(),"ACTIVE").orElse(null);var ip=request.getRemoteAddr();

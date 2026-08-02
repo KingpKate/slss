@@ -9,7 +9,12 @@ public class CaptchaService {
  public CaptchaService(LoginCaptchaChallengeRepository r,SystemSettingRepository s){repo=r;settings=s;}
  public record Status(boolean enabled, boolean required, int failures, int triggerAfterFailures){}
  public record Challenge(String token,String image,int expiresInSeconds){}
- private String setting(String key,String fallback){return settings.findById(key).map(x->x.getSettingValue()).filter(v->v!=null&&!v.isBlank()).orElse(fallback);}
+ private String setting(String key,String fallback){
+  String alternate = key.replace("login.captcha.", "login_captcha_");
+  return settings.findById(key).map(x->x.getSettingValue()).filter(v->v!=null&&!v.isBlank())
+    .or(() -> settings.findById(alternate).map(x->x.getSettingValue()).filter(v->v!=null&&!v.isBlank()))
+    .orElse(fallback);
+ }
  private int integer(String key,int fallback){try{return Integer.parseInt(setting(key,String.valueOf(fallback)));}catch(Exception e){return fallback;}}
  public Status status(String username,Long failures){boolean enabled=Boolean.parseBoolean(setting("login.captcha.enabled","true"));int threshold=Math.max(1,integer("login.captcha.triggerAfterFailures",3));int count=failures==null?0:failures.intValue();return new Status(enabled,enabled&&count>=threshold,count,threshold);}
  @Transactional public Challenge issue(String username,String ip){int seconds=Math.max(30,Math.min(900,integer("login.captcha.expireSeconds",120)));int max=Math.max(1,Math.min(10,integer("login.captcha.maxAttempts",5)));int len=Math.max(4,Math.min(8,integer("login.captcha.length",5)));String alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";StringBuilder answer=new StringBuilder();for(int i=0;i<len;i++)answer.append(alphabet.charAt(random.nextInt(alphabet.length())));String token=UUID.randomUUID().toString().replace("-","");var c=new LoginCaptchaChallenge();c.setId(token);c.setUsername(username);c.setIpAddress(ip==null?"":ip);c.setAnswerHash(hash(answer.toString()));c.setExpiresAt(Instant.now().plusSeconds(seconds));c.setMaxAttempts(max);repo.save(c);return new Challenge(token,render(answer.toString()),seconds);}
