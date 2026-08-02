@@ -61,10 +61,10 @@ public class AdminOverviewController {
   private Map<String, Object> counts() {
     var data = new LinkedHashMap<String, Object>();
     data.put("users", users.count());
-    data.put("permissionGroups", groups.findAllByDeletedAtIsNullOrderByNameAsc().size());
+    data.put("permissionGroups", groups.countByDeletedAtIsNull());
     data.put("tenants", tenants.count());
     data.put("aiChannels", channels.count());
-    data.put("enabledAiChannels", channels.findByEnabledTrueOrderByPriorityAscIdAsc().size());
+    data.put("enabledAiChannels", channels.countByEnabledTrue());
     return data;
   }
 

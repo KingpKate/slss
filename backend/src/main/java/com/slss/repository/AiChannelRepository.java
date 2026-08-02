@@ -7,4 +7,5 @@ import java.util.List;
 public interface AiChannelRepository extends JpaRepository<AiChannel, Long> {
   List<AiChannel> findAllByOrderByPriorityAscIdAsc();
   List<AiChannel> findByEnabledTrueOrderByPriorityAscIdAsc();
+  long countByEnabledTrue();
 }

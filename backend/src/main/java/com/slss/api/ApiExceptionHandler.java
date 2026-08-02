@@ -1,9 +1,30 @@
 package com.slss.api;
-import jakarta.servlet.http.HttpServletRequest; import org.springframework.http.*; import org.springframework.web.bind.annotation.*; import org.springframework.web.server.ResponseStatusException; import org.springframework.security.access.AccessDeniedException;
+
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.Instant;
+import java.util.UUID;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.access.AccessDeniedException;
+
+/** Stable problem payload consumed by the admin console and support tooling. */
 @RestControllerAdvice public class ApiExceptionHandler {
- @ExceptionHandler(ResponseStatusException.class) ResponseEntity<ApiError> status(ResponseStatusException e,HttpServletRequest r){return ResponseEntity.status(e.getStatusCode()).body(ApiError.of("BUSINESS_ERROR",e.getReason(),r.getRequestURI()));}
- @ExceptionHandler(AccessDeniedException.class) ResponseEntity<ApiError> denied(AccessDeniedException e,HttpServletRequest r){return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiError.of("ACCESS_DENIED","无权执行该操作",r.getRequestURI()));}
- @ExceptionHandler(IllegalStateException.class) ResponseEntity<ApiError> conflict(IllegalStateException e,HttpServletRequest r){return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiError.of("INVALID_STATE",e.getMessage(),r.getRequestURI()));}
- @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class) ResponseEntity<ApiError> optimistic(Exception e,HttpServletRequest r){return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiError.of("VERSION_CONFLICT","数据已被其他用户修改，请刷新后重试",r.getRequestURI()));}
- @ExceptionHandler(Exception.class) ResponseEntity<ApiError> generic(Exception e,HttpServletRequest r){return ResponseEntity.status(500).body(ApiError.of("INTERNAL_ERROR","服务器内部错误",r.getRequestURI()));}
+ record ApiError(String code, String message, String path, String traceId, Instant timestamp) {
+   static ApiError of(String code, String message, HttpServletRequest request) {
+     return new ApiError(code, message == null ? "请求失败" : message, request.getRequestURI(), requestTraceId(request), Instant.now());
+   }
+ }
+ private static String requestTraceId(HttpServletRequest request) {
+   var existing = request.getHeader("X-Request-Id");
+   return existing == null || existing.isBlank() ? UUID.randomUUID().toString() : existing;
+ }
+ private static <T> ResponseEntity<T> response(HttpStatusCode status, T body, String traceId) {
+   return ResponseEntity.status(status).header("X-Request-Id", traceId).body(body);
+ }
+ @ExceptionHandler(ResponseStatusException.class) ResponseEntity<ApiError> status(ResponseStatusException e,HttpServletRequest r){var b=ApiError.of("BUSINESS_ERROR",e.getReason(),r);return response(e.getStatusCode(),b,b.traceId());}
+ @ExceptionHandler(AccessDeniedException.class) ResponseEntity<ApiError> denied(AccessDeniedException e,HttpServletRequest r){var b=ApiError.of("ACCESS_DENIED","无权执行该操作",r);return response(HttpStatus.FORBIDDEN,b,b.traceId());}
+ @ExceptionHandler(IllegalStateException.class) ResponseEntity<ApiError> conflict(IllegalStateException e,HttpServletRequest r){var b=ApiError.of("INVALID_STATE",e.getMessage(),r);return response(HttpStatus.CONFLICT,b,b.traceId());}
+ @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class) ResponseEntity<ApiError> optimistic(Exception e,HttpServletRequest r){var b=ApiError.of("VERSION_CONFLICT","数据已被其他用户修改，请刷新后重试",r);return response(HttpStatus.CONFLICT,b,b.traceId());}
+ @ExceptionHandler(Exception.class) ResponseEntity<ApiError> generic(Exception e,HttpServletRequest r){var b=ApiError.of("INTERNAL_ERROR","服务器内部错误",r);return response(HttpStatus.INTERNAL_SERVER_ERROR,b,b.traceId());}
 }

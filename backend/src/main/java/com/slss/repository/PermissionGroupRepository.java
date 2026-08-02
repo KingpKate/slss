@@ -6,4 +6,5 @@ public interface PermissionGroupRepository extends JpaRepository<PermissionGroup
   Optional<PermissionGroup> findByCodeAndDeletedAtIsNull(String code);
   Optional<PermissionGroup> findByIdAndDeletedAtIsNull(Long id);
   java.util.List<PermissionGroup> findAllByDeletedAtIsNullOrderByNameAsc();
+  long countByDeletedAtIsNull();
 }

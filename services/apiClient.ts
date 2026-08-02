@@ -4,7 +4,7 @@ const deployedContext = typeof window === 'undefined' ? '' : window.location.pat
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || deployedContext).replace(/\/$/, '');
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public code?: string) { super(message); }
+  constructor(public status: number, message: string, public code?: string, public path?: string, public traceId?: string) { super(message); }
 }
 
 let refreshPromise: Promise<any> | null = null;
@@ -47,7 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({}));
     const detail = body.message || body.error || `API 请求失败 (${response.status})`;
     const endpoint = body.path || `${API_BASE_URL}/api/v1${path}`;
-    throw new ApiError(response.status, `${detail} [${response.status} ${endpoint}]`, body.code);
+    throw new ApiError(response.status, `${detail} [${response.status} ${endpoint}]${body.traceId ? ` · traceId=${body.traceId}` : ''}`, body.code, body.path || path, body.traceId);
   }
   if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T;
   const text = await response.text();
