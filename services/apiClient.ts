@@ -176,7 +176,7 @@ export const productionApi = {
   updateScanTemplate: (id: number, payload: unknown) => request<any>(`/scan/templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteScanTemplate: (id: number) => request<void>(`/scan/templates/${id}`, { method: 'DELETE' }),
   scanTables: () => request<any[]>('/scan/tables'),
-  scanTablesPage: (status = 'OPEN', page = 0, size = 20) => request<any>(`/scan/tables/page?status=${encodeURIComponent(status)}&page=${page}&size=${size}`),
+  scanTablesPage: (status = 'ACTIVE', page = 0, size = 20) => request<any>(`/scan/tables/page?status=${encodeURIComponent(status)}&page=${page}&size=${size}`),
   scanTablesAll: () => request<any[]>('/scan/tables/all'),
   createScanTable: (templateId: number, quantity: number, dispatchOrderNo?: string, disableAutoFillPartModels = false) => request<any>('/scan/tables', { method: 'POST', body: JSON.stringify({ templateId, quantity, dispatchOrderNo, disableAutoFillPartModels }) }),
   saveScanRow: (tableId: number, rowNumber: number, values: unknown[], version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}${version == null ? '' : `?version=${version}`}`, { method: 'PUT', body: JSON.stringify(values) }),
