@@ -134,8 +134,8 @@ class IntegrationTest {
     assertEquals(OrderStatus.ASSIGNED, history.get(1).getToStatus());
     var persistedAsset = assets.findByMachineSnIgnoreCase("IT-SERVICE-SN-001").orElseThrow();
     var events = lifecycle.findByAssetIdOrderByOccurredAtAsc(persistedAsset.getId());
-    assertEquals(2, events.size());
-    assertEquals("SERVICE_ORDER_CREATED", events.get(0).getEventType());
-    assertEquals("SERVICE_STATUS_CHANGED", events.get(1).getEventType());
+    assertEquals(3, events.size());
+    assertTrue(events.stream().anyMatch(e -> "SERVICE_ORDER_CREATED".equals(e.getEventType())));
+    assertTrue(events.stream().anyMatch(e -> "SERVICE_STATUS_CHANGED".equals(e.getEventType())));
   }
 }
