@@ -20,6 +20,11 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      # The production frontend bundle is embedded into the WAR. Give Maven
+      # enough heap for maven-war-plugin to assemble the large archive on the
+      # GitHub runner (the default heap can fail with Java heap space).
+      MAVEN_OPTS: -Xmx3g -XX:+UseG1GC
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
