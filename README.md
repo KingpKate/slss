@@ -78,14 +78,14 @@ RabbitMQ、Redis 仅在启用生产导入消息队列执行器时需要；本地
 ## 3. 从零获取源码
 
 ```bash
-git clone https://github.com/KingpKate/slss-v2.git
-cd slss-v2
+git clone https://github.com/KingpKate/slss.git
+cd slss
 ```
 
 如果网络环境无法访问 HTTPS，可使用已配置 SSH 的环境：
 
 ```bash
-git clone git@github.com:KingpKate/slss-v2.git
+git clone git@github.com:KingpKate/slss.git
 ```
 
 ## 4. 初始化 MySQL
@@ -298,7 +298,9 @@ curl -fsS http://127.0.0.1:8080/slss/actuator/health
 - 数据库迁移、权限变更、维修替换和批量导入均应保留审计记录。
 - 生产发布遵循“构建 → 测试 → 备份数据库 → 替换 WAR → 重启 → 健康检查 → 浏览器验收”的顺序。
 
-更多 Tomcat 外置配置示例请阅读 [`backend/DEPLOY_TOMCAT.md`](backend/DEPLOY_TOMCAT.md)，系统重构记录可参考仓库中的 `REFACTOR_PLAN.md`、`OPTIMIZATION.md` 与 `docs/`。
+更多 Tomcat 外置配置示例请阅读 [`backend/DEPLOY_TOMCAT.md`](backend/DEPLOY_TOMCAT.md)，
+完整发布流程请阅读 [`DEPLOY.md`](DEPLOY.md)。架构审计、接口和专项测试资料统一放在
+[`docs/`](docs/)；README 不再引用已经删除的旧版规划文件。
 
 ## 12. 当前生产发布包与数据库导出（2026-08-20）
 
