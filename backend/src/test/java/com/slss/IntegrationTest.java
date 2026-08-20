@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
 @EnabledIf("dockerAvailable")
+@WithMockUser(username = "integration-admin", authorities = "PERM_MANAGE_SYSTEM")
 class IntegrationTest {
   static boolean dockerAvailable() { try { return org.testcontainers.DockerClientFactory.instance().isDockerAvailable(); } catch (Throwable ignored) { return false; } }
   @Container
