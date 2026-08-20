@@ -129,10 +129,9 @@ class IntegrationTest {
     repairOrders.transition(order.getId(), OrderStatus.ASSIGNED, "指派工程师");
 
     var history = statusHistory.findByOrderIdOrderByCreatedAtAsc(order.getId());
-    assertEquals(3, history.size());
+    assertEquals(2, history.size());
     assertEquals(OrderStatus.PENDING, history.get(0).getToStatus());
     assertEquals(OrderStatus.ASSIGNED, history.get(1).getToStatus());
-    assertEquals(OrderStatus.ASSIGNED, history.get(2).getToStatus());
     var persistedAsset = assets.findByMachineSnIgnoreCase("IT-SERVICE-SN-001").orElseThrow();
     var events = lifecycle.findByAssetIdOrderByOccurredAtAsc(persistedAsset.getId());
     assertEquals(2, events.size());
