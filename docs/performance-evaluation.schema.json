@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slss.local/schemas/performance-evaluation.schema.json",
+  "title": "SLSS 主管绩效评价模板",
+  "type": "object",
+  "required": ["schema_version", "template_department", "role_scope", "sections"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "template_department": {
+      "type": "object",
+      "required": ["department_id", "department_name", "source_sheet"],
+      "properties": {
+        "department_id": { "type": "string", "minLength": 1 },
+        "department_name": { "type": "string", "minLength": 1 },
+        "source_sheet": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "role_scope": {
+      "type": "string",
+      "enum": ["SUBJECT_DEPARTMENT", "EVALUATOR", "MANAGER", "HR", "ALL_DEPARTMENTS"]
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["section_id", "section_name", "section_weight", "items"],
+        "properties": {
+          "section_id": { "type": "string" },
+          "section_name": { "type": "string" },
+          "section_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item_code", "department_id", "role_scope", "key_factor", "standard", "max_score", "evaluator_scope"],
+              "properties": {
+                "item_code": { "type": "string" },
+                "department_id": { "type": "string" },
+                "role_scope": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "minItems": 1
+                },
+                "key_factor": { "type": "string" },
+                "standard": { "type": "string" },
+                "max_score": { "type": "number", "minimum": 0 },
+                "evaluator_scope": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "minItems": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

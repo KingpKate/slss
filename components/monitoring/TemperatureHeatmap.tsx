@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core';
 import { HeatmapChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import type { TemperaturePoint } from './mockMonitoring';
+import type { TemperaturePoint } from './types';
 
 echarts.use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 

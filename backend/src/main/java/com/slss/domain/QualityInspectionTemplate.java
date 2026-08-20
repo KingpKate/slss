@@ -1,0 +1,6 @@
+package com.slss.domain;
+import jakarta.persistence.*; import java.time.Instant;
+@Entity @Table(name="quality_inspection_templates")
+public class QualityInspectionTemplate { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id; @Column(name="customer_name",nullable=false) String customerName; @Column(name="dispatch_order_no",nullable=false) String dispatchOrderNo; @Lob @Column(name="stages_json",nullable=false,columnDefinition="LONGTEXT") String stagesJson; boolean active=true; String createdBy; Instant createdAt=Instant.now(); Instant updatedAt=Instant.now();
+ public Long getId(){return id;} public String getCustomerName(){return customerName;} public void setCustomerName(String v){customerName=v;} public String getDispatchOrderNo(){return dispatchOrderNo;} public void setDispatchOrderNo(String v){dispatchOrderNo=v;} public String getStagesJson(){return stagesJson;} public void setStagesJson(String v){stagesJson=v;} public boolean isActive(){return active;} public void setActive(boolean v){active=v;} public String getCreatedBy(){return createdBy;} public void setCreatedBy(String v){createdBy=v;} public Instant getCreatedAt(){return createdAt;} public Instant getUpdatedAt(){return updatedAt;} public void setUpdatedAt(Instant v){updatedAt=v;}
+}

@@ -15,6 +15,8 @@ import com.slss.repository.RefreshTokenRepository;
 import com.slss.service.AuditService;
 import com.slss.service.PermissionCacheService;
 import com.slss.service.LoginAttemptService;
+import com.slss.service.CaptchaService;
+import com.slss.service.TenantScopeService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -56,6 +59,8 @@ class AuthRbacIntegrationTest {
   @MockBean ScanTableRepository scanTables;
   @MockBean PermissionCacheService permissionCache;
   @MockBean LoginAttemptService loginAttempts;
+  @MockBean CaptchaService captcha;
+  @MockBean TenantScopeService tenantScope;
 
   @BeforeEach
   void stubPermissionCache() {
@@ -65,6 +70,7 @@ class AuthRbacIntegrationTest {
           ? java.util.Set.of("VIEW_PRODUCTION") : java.util.Set.<String>of();
       return new PermissionCacheService.EffectivePermissions(permissions, java.util.Set.of(), java.util.Map.of(), java.util.Map.of(), 1L);
     });
+    when(captcha.status(anyString(), anyLong())).thenReturn(new CaptchaService.Status(false, false, 0, 3));
   }
 
   @Test

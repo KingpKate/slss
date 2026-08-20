@@ -8,10 +8,12 @@ export class ApiError extends Error {
 }
 
 let refreshPromise: Promise<any> | null = null;
+// Access tokens stay in memory; session restoration uses the HttpOnly cookie.
+let accessToken: string | null = null;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData;
-  const token = localStorage.getItem('slss_token');
+  const token = accessToken;
   const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
     ...init,
     credentials: 'include',
@@ -21,7 +23,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // A 403 means the token is valid but the caller lacks this permission. Do
   // not rotate the session or redirect to login in that case; only 401 is an
   // authentication failure eligible for refresh/replay.
-  if (response.status === 401 && token && !authRetry && path !== '/auth/login' && path !== '/auth/refresh') {
+  if (response.status === 401 && token && !authRetry && path !== '/auth/login' && path !== '/auth/refresh' && path !== '/auth/logout') {
     const errBody = await response.clone().json().catch(() => ({} as any));
     try {
       refreshPromise ||= fetch(`${API_BASE_URL}/api/v1/auth/refresh`, { method: 'POST', credentials: 'include' })
@@ -35,11 +37,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         const synchronizedUser = { ...previous, username: body.username || previous.username, permissions: (body.authorities || []).map(a => a.replace(/^PERM_/, '')), mustChangePassword: body.mustChangePassword };
         localStorage.setItem('slss_user', JSON.stringify(synchronizedUser));
         window.dispatchEvent(new CustomEvent('slss-session-updated', { detail: synchronizedUser }));
-        localStorage.setItem('slss_token', body.token);
+        accessToken = body.token;
         return request<T>(path, { ...init, headers: { ...(init?.headers || {}), 'X-Auth-Retry': '1' } });
       }
     } catch { /* session expiry is handled below */ }
-    localStorage.removeItem('slss_token');
+    accessToken = null;
     localStorage.removeItem('slss_user');
     if (typeof window !== 'undefined' && !window.location.hash.includes('#/login')) window.location.hash = '#/login';
   }
@@ -84,6 +86,15 @@ function normalizeAsset(raw: any) {
     contract_no: raw.contract_no ?? raw.contractNo ?? '',
     invoice_date: raw.invoice_date ?? raw.invoiceDate ?? '',
     batch_name: raw.batch_name ?? raw.batchName ?? '',
+    scanTableId: raw.scanTableId ?? raw.scan_table_id ?? null,
+    scanRowNumber: raw.scanRowNumber ?? raw.scan_row_number ?? raw.rowNumber ?? raw.row_number ?? null,
+    components: (raw.components || []).map((component: any) => ({
+      ...component,
+      fieldKey: component.fieldKey ?? component.field_key ?? '',
+      operatorNo: component.operatorNo ?? component.operator_no ?? '',
+      serialNo: component.serialNo ?? component.serial_no ?? '',
+      faultDescription: component.faultDescription ?? component.fault_description ?? '',
+    })),
   };
 }
 
@@ -94,12 +105,16 @@ export const api = {
     counts: { users: number; permissionGroups: number; tenants: number; aiChannels: number; enabledAiChannels: number };
     configuration: { logRetentionDays: string; brandingConfigured: boolean };
   }>('/admin/overview'),
-  login: (username: string, password: string, captcha?: { token?: string; answer?: string }) =>
-    request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password, captchaToken: captcha?.token, captchaAnswer: captcha?.answer }) }),
+  login: async (username: string, password: string, captcha?: { token?: string; answer?: string }) => {
+    const result = await request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password, captchaToken: captcha?.token, captchaAnswer: captcha?.answer }) });
+    accessToken = result.token;
+    return result;
+  },
   captchaStatus: (username: string) => request<{ required: boolean; failedAttempts?: number; threshold?: number }>(`/auth/captcha/status?username=${encodeURIComponent(username)}`),
   captchaChallenge: (username: string) => request<{ token: string; image?: string; question?: string; expiresAt?: string; expiresInSeconds?: number }>('/auth/captcha/challenge', { method: 'POST', body: JSON.stringify({ username }) }),
-  refreshSession: () => request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/refresh', { method: 'POST' }),
+  refreshSession: async () => { const result = await request<{ token: string; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/refresh', { method: 'POST' }); accessToken = result.token; return result; },
   currentSession: () => request<{ token: null; username: string; authorities: string[]; mustChangePassword: boolean }>('/auth/me'),
+  logout: async () => { try { return await request<void>('/auth/logout', { method: 'POST' }); } finally { accessToken = null; } },
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>('/me/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
   listUsers: (page = 0, size = 100) => request<{content:any[];totalElements:number;totalPages:number}>(`/users?page=${page}&size=${size}`),
@@ -132,6 +147,8 @@ export const api = {
   dashboardStatistics: () => request<any>('/dashboard/statistics'),
   dashboardAlerts: () => request<{overdue:any[];recurring:any[]}>('/dashboard/alerts'),
   dashboardProduction: () => request<any>('/dashboard/production'),
+  assetsPage: (page = 0, size = 50) => request<{content:any[];totalElements:number;totalPages:number}>(`/assets/page?page=${page}&size=${size}`),
+  serviceOrdersPage: (page = 0, size = 50) => request<{content:any[];totalElements:number;totalPages:number}>(`/service-orders/page?page=${page}&size=${size}`),
   sessions: (page = 0, size = 20) => request<{content:any[];totalElements:number;totalPages:number}>(`/sessions/me?page=${page}&size=${size}`),
   allSessions: (page = 0, size = 20) => request<{content:any[];totalElements:number;totalPages:number}>(`/sessions?page=${page}&size=${size}`),
   revokeSession: (id:number) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
@@ -157,6 +174,28 @@ export const api = {
   deleteAiChannel: (id: number) => request<void>(`/settings/ai/channels/${id}`, { method: 'DELETE' }),
   testAiChannel: (id: number) => request<any>(`/settings/ai/channels/${id}/test`, { method: 'POST' }),
   aiChannelModels: (id: number) => request<any>(`/settings/ai/channels/${id}/models`),
+  performanceCurrent: (period: string, mode: 'subject'|'evaluator' = 'subject') => request<any>(`/performance/current?period=${encodeURIComponent(period)}&mode=${mode}`),
+  openPerformanceEvaluation: (period: string, mode: 'subject'|'evaluator' = 'subject') => request<any>(`/performance/evaluations?period=${encodeURIComponent(period)}&mode=${mode}`, { method: 'POST' }),
+  savePerformanceScores: (id: number, scores: Array<{ itemId: number; score: number; comment?: string }>, expectedVersion?: number, mode: 'subject'|'evaluator' = 'subject') => request<any>(`/performance/evaluations/${id}/scores`, { method: 'PUT', body: JSON.stringify({ scores, expectedVersion, mode }) }),
+  submitPerformanceEvaluation: (id: number, expectedVersion?: number, mode: 'subject'|'evaluator' = 'subject') => request<any>(`/performance/evaluations/${id}/submit`, { method: 'POST', body: JSON.stringify({ expectedVersion, mode }) }),
+  previewPerformanceExcel: (file: File) => { const body = new FormData(); body.append('file', file); return request<{ token?: string; templates: number; sheets: string[]; duplicates: string[]; errors: string[] }>('/performance/templates/import-excel/preview', { method: 'POST', body, headers: {} }); },
+  confirmPerformanceExcel: (token: string, onDuplicate: 'skip' | 'stop' = 'skip') => request<{ imported: number; sheets: string[]; skipped: string[]; errors: string[] }>(`/performance/templates/import-excel/confirm?token=${encodeURIComponent(token)}&onDuplicate=${encodeURIComponent(onDuplicate)}`, { method: 'POST' }),
+  importPerformanceExcel: (file: File, onDuplicate: 'skip' | 'stop' = 'skip') => { const body = new FormData(); body.append('file', file); return request<{ imported: number; sheets: string[]; skipped: string[]; errors: string[] }>(`/performance/templates/import-excel?onDuplicate=${encodeURIComponent(onDuplicate)}`, { method: 'POST', body, headers: {} }); },
+  assignPerformanceDepartment: (userId: number, departmentId: string, primary = true) => request<any>(`/performance/users/${userId}/department`, { method: 'PUT', body: JSON.stringify({ departmentId, primary }) }),
+  performanceTemplates: () => request<any[]>('/performance/templates'),
+  performanceDepartments: () => request<Array<{ id: number; code: string; name: string }>>('/performance/departments'),
+  openPerformanceCycle: (periodCode: string, windows?: { startsAt?: string; endsAt?: string; publishedAt?: string; dueAt?: string }) => request<{ id: number; periodCode: string; status: string; version: number; startsAt?: string; endsAt?: string; publishedAt?: string; dueAt?: string }>('/performance/cycles', { method: 'POST', body: JSON.stringify({ periodCode, ...(windows || {}) }) }),
+  updatePerformanceTemplate: (id: number, payload: { name?: string; status?: string }) => request<any>(`/performance/templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  performanceTemplateDetail: (id: number) => request<any>(`/performance/templates/${id}`),
+  revisePerformanceTemplate: (id: number, payload: any) => request<any>(`/performance/templates/${id}/definition`, { method: 'PUT', body: JSON.stringify(payload) }),
+  publishPerformanceTemplate: (id: number) => request<any>(`/performance/templates/${id}/publish`, { method: 'POST' }),
+  performanceResults: (period: string) => request<any[]>(`/performance/admin/results?period=${encodeURIComponent(period)}`),
+  performanceAssignmentInbox: (period: string) => request<any[]>(`/performance/assignments/inbox?period=${encodeURIComponent(period)}`),
+  openPerformanceAssignment: (id: number) => request<any>(`/performance/assignments/${id}/open`, { method: 'POST' }),
+  performanceAssignmentTasks: (period: string) => request<any[]>(`/performance/admin/assignments?period=${encodeURIComponent(period)}`),
+  createPerformanceAssignment: (payload: any) => request<any>('/performance/admin/assignments', { method: 'POST', body: JSON.stringify(payload) }),
+  performanceStandards: () => request<any[]>('/performance/standards'),
+  updatePerformanceStandards: (payload: any[]) => request<any[]>('/performance/standards', { method: 'PUT', body: JSON.stringify(payload) }),
   analyzeAi: (payload: { faultDescription: string; machineConfig?: string; logs?: string }) => request<any>('/ai/analyze', { method: 'POST', body: JSON.stringify(payload) }),
   companyLogo: () => request<{ value: string }>('/settings/company-logo'),
   updateCompanyLogo: (value: string) => request<{ value: string }>('/settings/company-logo', { method: 'PUT', body: JSON.stringify({ value }) }),
@@ -182,34 +221,59 @@ export const api = {
 
 export const productionApi = {
   scanTemplates: () => request<any[]>('/scan/templates'),
+  productionGeneralTemplate: () => request<{ fields: any[] }>('/settings/production-template'),
+  updateProductionGeneralTemplate: (fields: any[]) => request<{ fields: any[] }>('/settings/production-template', { method: 'PUT', body: JSON.stringify({ fields }) }),
   scanTemplatesPage: (page = 0, size = 20) => request<any>(`/scan/templates/page?page=${page}&size=${size}`),
   createScanTemplate: (payload: unknown) => request<any>('/scan/templates', { method: 'POST', body: JSON.stringify(payload) }),
   updateScanTemplate: (id: number, payload: unknown) => request<any>(`/scan/templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteScanTemplate: (id: number) => request<void>(`/scan/templates/${id}`, { method: 'DELETE' }),
   scanTables: () => request<any[]>('/scan/tables'),
+  completedScanTables: () => request<any[]>('/scan/tables/completed'),
+  unfinishedScanTables: () => request<any[]>('/scan/tables/unfinished'),
+  scanTable: (tableId: number) => request<any>(`/scan/tables/${tableId}`),
+  scanTableMachineRow: (tableId: number, machineSn: string) => request<any>(`/scan/tables/${tableId}/machine/${encodeURIComponent(machineSn)}`),
   scanTablesPage: (status = 'ACTIVE', page = 0, size = 20) => request<any>(`/scan/tables/page?status=${encodeURIComponent(status)}&page=${page}&size=${size}`),
   scanTablesAll: () => request<any[]>('/scan/tables/all'),
   createScanTable: (templateId: number, quantity: number, dispatchOrderNo?: string, disableAutoFillPartModels = false) => request<any>('/scan/tables', { method: 'POST', body: JSON.stringify({ templateId, quantity, dispatchOrderNo, disableAutoFillPartModels }) }),
   saveScanRow: (tableId: number, rowNumber: number, values: unknown[], version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}${version == null ? '' : `?version=${version}`}`, { method: 'PUT', body: JSON.stringify(values) }),
+  toggleScanStep: (tableId: number, rowNumber: number, fieldKey: string, completed: boolean, version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/steps/${encodeURIComponent(fieldKey)}?completed=${completed}${version == null ? '' : `&version=${version}`}`, { method: 'PUT' }),
+  completeScanSection: (tableId: number, rowNumber: number, section: string, version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/sections/${encodeURIComponent(section)}/complete${version == null ? '' : `?version=${version}`}`, { method: 'POST' }),
+  scanProcessSteps: (tableId: number) => request<Record<string, string[]>>(`/scan/tables/${tableId}/process-steps`),
   completeScanRow: (tableId: number, rowNumber: number, version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/complete${version == null ? '' : `?version=${version}`}`, { method: 'POST' }),
+  cancelScanRow: (tableId: number, rowNumber: number, version?: number) => request<any>(`/scan/tables/${tableId}/rows/${rowNumber}/cancel${version == null ? '' : `?version=${version}`}`, { method: 'POST' }),
   deleteScanTable: (tableId: number) => request<void>(`/scan/tables/${tableId}`, { method: 'DELETE' }),
   deleteScanColumn: (tableId: number, fieldKey: string) => request<any>(`/scan/tables/${tableId}/fields/${encodeURIComponent(fieldKey)}`, { method: 'DELETE' }),
-  addScanColumn: (tableId: number, fieldKey: string, label: string, afterKey: string) => request<any>(`/scan/tables/${tableId}/fields`, { method: 'POST', body: JSON.stringify({ key: fieldKey, label, type: /sn|序列号/i.test(`${fieldKey} ${label}`) ? 'SN' : 'TEXT', required: false, afterKey }) }),
+  addScanColumn: (tableId: number, fieldKey: string, label: string, afterKey: string, section = '组装') => request<any>(`/scan/tables/${tableId}/fields`, { method: 'POST', body: JSON.stringify({ key: fieldKey, label, type: /sn|序列号/i.test(`${fieldKey} ${label}`) ? 'SN' : 'TEXT', required: false, afterKey, section }) }),
   listAssets: () => request<any[]>('/assets').then(rows => rows.map(normalizeAsset)),
   getAsset: (machineSn: string) => request<any>(`/assets/${encodeURIComponent(machineSn)}`).then(normalizeAsset),
   repairLookup: (serialNo: string) => request<any>(`/assets/repair-lookup/${encodeURIComponent(serialNo)}`).then(normalizeAsset),
+  forceLookup: (serialNo: string) => request<any>(`/assets/repair-lookup/${encodeURIComponent(serialNo)}?includeCustomFields=true`).then(normalizeAsset),
   forceUpdateCompletedAsset: (machineSn: string, components: unknown[]) => request<any>(`/assets/${encodeURIComponent(machineSn)}/force-scan`, { method: 'PUT', body: JSON.stringify({ components }) }).then(normalizeAsset),
+  forceAddCompletedColumn: (machineSn: string, label: string, type = 'SN', afterType = '', inheritLabel = false, position: 'before'|'after' = 'after') => request<any>(`/assets/${encodeURIComponent(machineSn)}/force-column`, { method: 'POST', body: JSON.stringify({ label, type, afterType, inheritLabel, position }) }),
+  forceDeleteCompletedColumn: (machineSn: string, label: string, occurrence = 0, fieldKey = '') => request<any>(`/assets/${encodeURIComponent(machineSn)}/force-column`, { method: 'DELETE', body: JSON.stringify({ label, occurrence, fieldKey }) }),
   createBatch: (batchName: string) => request<unknown>('/production/batches', { method: 'POST', body: JSON.stringify({ batchName }) }),
   saveDraftRow: (id: number, row: unknown) => request<unknown>(`/production/batches/${id}/draft-rows`, { method: 'POST', body: JSON.stringify(row) }),
   saveDraftComponents: (id: number, machineSn: string, rows: unknown[]) => request<void>(`/production/batches/${id}/draft-rows/${encodeURIComponent(machineSn)}/components`, { method: 'PUT', body: JSON.stringify(rows) }),
   duplicateSn: (serialNo: string, excludeScanTableId?: number, excludeRowNumber?: number) => request<{serialNo?:string;machineSn?:string;component?:string}>(`/production/batches/duplicate-sn?serialNo=${encodeURIComponent(serialNo)}${excludeScanTableId ? `&excludeScanTableId=${excludeScanTableId}` : ''}${excludeRowNumber ? `&excludeRowNumber=${excludeRowNumber}` : ''}`),
-  statistics: (from:string,to:string) => request<any>(`/production/batches/statistics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  statistics: (from:string,to:string,serialNo = '') => request<any>(`/production/batches/statistics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${serialNo.trim() ? `&serialNo=${encodeURIComponent(serialNo.trim())}` : ''}`),
   commitBatch: (id: number, rows: unknown[]) => request<unknown>(`/production/batches/${id}/commit`, { method: 'POST', body: JSON.stringify(rows) }),
   importExcel: (batchName: string, file: File) => { const body = new FormData(); body.append('batchName', batchName); body.append('file', file); return request<unknown>('/production/imports', { method: 'POST', body, headers: {} }); },
   submitImportJob: (batchName:string,file:File) => { const body=new FormData();body.append('batchName',batchName);body.append('file',file);return request<any>('/production/import-jobs',{method:'POST',body,headers:{}}); },
   cancelImportJob: (id:number) => request<any>(`/production/import-jobs/${id}/cancel`,{method:'POST'}),
   retryImportJob: (id:number) => request<any>(`/production/import-jobs/${id}/retry`,{method:'POST'}),
   importJobFailures: (id:number) => request<any[]>(`/production/import-jobs/${id}/failures`),
+};
+
+export const qualityApi = {
+  productionImports: () => request<any[]>('/quality/production-import'),
+  importProductionOrder: (id:number) => request<any>(`/quality/inspection-orders/import/${id}`, { method: 'POST' }),
+  inspectionOrders: () => request<any[]>('/quality/inspection-orders'),
+  generalTemplate: () => request<{ stages: any[] }>('/settings/quality-inspection-template'),
+  updateGeneralTemplate: (stages: any[]) => request<{ stages: any[] }>('/settings/quality-inspection-template', { method: 'PUT', body: JSON.stringify({ stages }) }),
+  inspectionTemplates: () => request<any[]>('/quality/inspection-templates'),
+  createInspectionTemplate: (payload: any) => request<any>('/quality/inspection-templates', { method: 'POST', body: JSON.stringify(payload) }),
+  updateInspectionTemplate: (id: number, payload: any) => request<any>(`/quality/inspection-templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteInspectionTemplate: (id: number) => request<void>(`/quality/inspection-templates/${id}`, { method: 'DELETE' }),
 };
 
 export const afterSalesApi = {

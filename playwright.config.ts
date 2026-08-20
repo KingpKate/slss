@@ -11,7 +11,7 @@ export default defineConfig({
   fullyParallel: true,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: process.env.SLSS_E2E_URL || 'http://127.0.0.1:18080/slss/',
+    baseURL: process.env.SLSS_E2E_URL || 'http://127.0.0.1:8080/slss/',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     ...devices['Desktop Chrome'],

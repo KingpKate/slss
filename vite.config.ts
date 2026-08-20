@@ -27,6 +27,7 @@ export default defineConfig(() => {
             manualChunks(id) {
               if (!id.includes('node_modules')) return;
               if (id.includes('recharts') || id.includes('victory-vendor')) return 'charts';
+              if (id.includes('echarts')) return 'echarts';
               if (id.includes('lucide-react')) return 'icons';
               if (id.includes('html2canvas')) return 'html2canvas';
               if (id.includes('jspdf') || id.includes('canvg') || id.includes('html2canvas')) return 'pdf-tools';

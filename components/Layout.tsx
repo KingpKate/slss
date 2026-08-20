@@ -8,6 +8,7 @@ import {
   ScanLine, Settings2, ShieldCheck, ShoppingCart, Server, Wrench, X
 } from 'lucide-react';
 import { ROLE_LABELS } from '../constants';
+import { NAVIGATION_GROUPS, NAVIGATION_ITEMS } from './app-shell/navigation';
 
 const resolveAssetUrl = (value: string) => {
   if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
@@ -44,17 +45,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   if (!user) return <>{children}</>;
 
-  const nav = [
-    { to: '/dashboard', icon: LayoutDashboard, label: '生产运营总览', permission: 'VIEW_DASHBOARD' as Permission, group: '运营中心' },
-    { to: '/production/mes', icon: ScanLine, label: '生产 MES 工作台', permission: 'VIEW_PRODUCTION' as Permission, group: '生产管理' },
-    { to: '/orders', icon: Wrench, label: '售后工单管理', permission: 'VIEW_ORDERS' as Permission, group: '服务管理' },
-    { to: '/sales-procurement', icon: Briefcase, label: '销售立项', permission: 'MANAGE_SALES' as Permission, group: '协同管理' },
-    { to: '/procurement', icon: ShoppingCart, label: '采购协同', permission: 'MANAGE_PROCUREMENT' as Permission, group: '协同管理' },
-    { to: '/admin', icon: Settings2, label: '系统管理配置', permission: 'MANAGE_SYSTEM' as Permission, group: '系统设置' },
-  ];
+  const nav = NAVIGATION_ITEMS;
+  const hasPermission = (permission: Permission) => user.permissions.includes(permission)
+    || (permission === 'VIEW_PERFORMANCE' && (user.permissions.includes('MANAGE_PERFORMANCE') || user.permissions.includes('MANAGE_SYSTEM')));
 
   const NavItem = ({ item }: { item: typeof nav[number] }) => {
-    if (!user.permissions.includes(item.permission)) return null;
+    if (!hasPermission(item.permission)) return null;
     const active = location.pathname === item.to || (item.to === '/production/mes' && location.pathname.startsWith('/production'));
     const Icon = item.icon;
     return <Link to={item.to} onClick={() => setSidebarOpen(false)} className={`slss-nav-link flex min-h-[44px] items-center gap-3 px-5 py-3 text-sm ${active ? 'slss-nav-link-active' : ''}`}>
@@ -75,8 +71,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
       <div className="slss-connection-strip"><span className={`slss-status-dot ${systemOnline ? '' : 'is-offline'}`} /><span>{systemOnline ? '服务正常运行' : 'API 连接异常'}</span><span className="slss-connection-version">v2.1</span></div>
       <nav className="slss-nav flex-1 overflow-y-auto" aria-label="主导航">
-        {['运营中心', '生产管理', '服务管理', '协同管理', '系统设置'].map(group => {
-          const items = nav.filter(item => item.group === group && user.permissions.includes(item.permission));
+        {NAVIGATION_GROUPS.map(group => {
+          const items = nav.filter(item => item.group === group && hasPermission(item.permission));
           if (!items.length) return null;
           return <section className="slss-nav-group" key={group}><p className="slss-nav-label">{group}</p>{items.map(item => <NavItem key={item.to} item={item} />)}</section>;
         })}

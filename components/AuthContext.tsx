@@ -18,37 +18,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
-    // Check localStorage for persisted session
-    const savedUser = localStorage.getItem('slss_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    // Refresh the server session on boot so permission changes made by an
-    // administrator are reflected immediately without relying on stale cache.
-    if (localStorage.getItem('slss_token')) {
-      api.refreshSession().then((result: any) => {
-        const previous = savedUser ? JSON.parse(savedUser) : {};
-        const synchronizedUser = {
-          ...previous,
-          id: previous.id || 0,
-          username: result.username || previous.username,
-          permissions: (result.authorities || []).map((a: string) => a.replace(/^PERM_/, '')),
-          mustChangePassword: Boolean(result.mustChangePassword),
-        } as User;
-        localStorage.setItem('slss_token', result.token);
-        localStorage.setItem('slss_user', JSON.stringify(synchronizedUser));
-        setUser(synchronizedUser);
-        window.dispatchEvent(new CustomEvent('slss-session-updated', { detail: synchronizedUser }));
-      }).catch(() => {
-        // Keep the existing session; the request interceptor will handle an
-        // actually expired/revoked session on the next API call.
-      }).finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
     const synchronize = (event: Event) => setUser((event as CustomEvent<User>).detail);
     window.addEventListener('slss-session-updated', synchronize);
-    return () => window.removeEventListener('slss-session-updated', synchronize);
+    let mounted = true;
+
+    // Do not trust a cached user object as an authenticated session. The
+    // refresh cookie is HttpOnly and therefore cannot be inspected here; ask
+    // the server on every boot and only hydrate the UI after it validates the
+    // session and returns the current authorities.
+    api.refreshSession().then((result: any) => {
+      if (!mounted || !result?.token) return;
+      const cached = JSON.parse(localStorage.getItem('slss_user') || '{}');
+      const synchronizedUser = {
+        id: Number(cached.id || 0),
+        username: result.username || cached.username || '',
+        role: cached.role || UserRole.ADMIN,
+        password: '',
+        status: 'active',
+        permissions: (result.authorities || []).map((a: string) => a.replace(/^PERM_/, '')),
+        mustChangePassword: Boolean(result.mustChangePassword),
+      } as User;
+      localStorage.setItem('slss_user', JSON.stringify(synchronizedUser));
+      setUser(synchronizedUser);
+      window.dispatchEvent(new CustomEvent('slss-session-updated', { detail: synchronizedUser }));
+    }).catch(() => {
+      // A revoked/expired cookie must not leave a stale cached account active.
+      localStorage.removeItem('slss_user');
+      if (mounted) setUser(null);
+    }).finally(() => { if (mounted) setLoading(false); });
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('slss-session-updated', synchronize);
+    };
   }, []);
 
   const login = async (username: string, password?: string, captcha?: { token?: string; answer?: string }): Promise<boolean> => {
@@ -56,7 +58,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sessionStorage.removeItem('slss_password_change_skipped');
     try {
         const result = await api.login(username, password || '', captcha);
-        localStorage.setItem('slss_token', result.token);
         const remoteUser = { id: 0, username: result.username, role: UserRole.ADMIN, password: '', status: 'active', permissions: result.authorities.map(a => a.replace(/^PERM_/, '')), mustChangePassword: Boolean(result.mustChangePassword) } as unknown as User;
         setUser(remoteUser);
         localStorage.setItem('slss_user', JSON.stringify(remoteUser));
@@ -68,9 +69,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    // Revoke the server-side refresh token before removing the local access
+    // token. Cleanup still happens when the network is unavailable.
+    void api.logout().catch(() => undefined);
     setUser(null);
     localStorage.removeItem('slss_user');
-    localStorage.removeItem('slss_token');
   };
 
   return (

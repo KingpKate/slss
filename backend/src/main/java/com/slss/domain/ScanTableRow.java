@@ -13,7 +13,11 @@ public class ScanTableRow {
  @Column(nullable=false) private String status="OPEN";
  @Column(name="completed_by") private String completedBy;
  @Column(name="completed_at") private Instant completedAt;
+ @Column(name="completed_process_keys", length=4000) private String completedProcessKeys;
+ @Column(name="completed_process_operators", length=4000) private String completedProcessOperators;
  @OneToMany(mappedBy="row",cascade=CascadeType.ALL,orphanRemoval=true) private List<ScanTableValue> values=new ArrayList<>();
  public Long getId(){return id;} public Long getVersion(){return version;} public ScanTable getScanTable(){return scanTable;} public void setScanTable(ScanTable v){scanTable=v;} public int getRowNumber(){return rowNumber;} public void setRowNumber(int v){rowNumber=v;} public String getMachineSn(){return machineSn;} public void setMachineSn(String v){machineSn=v;} public String getStatus(){return status;} public void setStatus(String v){status=v;} public void setCompletedBy(String v){completedBy=v;} public String getCompletedBy(){return completedBy;} public List<ScanTableValue> getValues(){return values;}
  public Instant getCompletedAt(){return completedAt;} public void setCompletedAt(Instant v){completedAt=v;}
+ public String getCompletedProcessKeys(){return completedProcessKeys;} public void setCompletedProcessKeys(String v){completedProcessKeys=v;}
+ public String getCompletedProcessOperators(){return completedProcessOperators;} public void setCompletedProcessOperators(String v){completedProcessOperators=v;}
 }

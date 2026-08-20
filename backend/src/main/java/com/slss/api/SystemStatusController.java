@@ -39,8 +39,12 @@ public class SystemStatusController {
     result.put("version", version);
     result.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
     result.put("jvm", jvm());
-    result.put("database", database());
-    result.put("redis", redis());
+    var database = database();
+    var cache = redis();
+    result.put("database", database);
+    result.put("redis", cache);
+    result.put("checks", checks(database, cache));
+    result.put("status", overallStatus(database, cache));
     return result;
   }
 
@@ -50,8 +54,11 @@ public class SystemStatusController {
     var data = new LinkedHashMap<String, Object>();
     data.put("heapUsedBytes", memory.getHeapMemoryUsage().getUsed());
     data.put("heapMaxBytes", memory.getHeapMemoryUsage().getMax());
+    data.put("heapCommittedBytes", memory.getHeapMemoryUsage().getCommitted());
     data.put("memoryUsagePercent", percent(memory.getHeapMemoryUsage().getUsed(), memory.getHeapMemoryUsage().getMax()));
     data.put("availableProcessors", os.getAvailableProcessors());
+    data.put("threadCount", ManagementFactory.getThreadMXBean().getThreadCount());
+    data.put("peakThreadCount", ManagementFactory.getThreadMXBean().getPeakThreadCount());
     double load = os.getSystemLoadAverage();
     data.put("systemLoadAverage", load < 0 ? null : round(load));
     data.put("javaVersion", System.getProperty("java.version"));
@@ -104,6 +111,20 @@ public class SystemStatusController {
       data.put("error", "Redis 连接不可用");
     }
     return data;
+  }
+
+  private Map<String, Object> checks(Map<String, Object> database, Map<String, Object> cache) {
+    var checks = new LinkedHashMap<String, Object>();
+    checks.put("application", Map.of("status", "up", "label", "应用服务"));
+    checks.put("database", Map.of("status", database.getOrDefault("status", "unavailable"), "label", "MySQL 数据库", "latencyMs", database.getOrDefault("latencyMs", 0L)));
+    checks.put("redis", Map.of("status", cache.getOrDefault("status", "unavailable"), "label", "Redis 缓存", "latencyMs", cache.getOrDefault("latencyMs", 0L)));
+    return checks;
+  }
+
+  private String overallStatus(Map<String, Object> database, Map<String, Object> cache) {
+    if ("unavailable".equals(database.get("status")) || "unavailable".equals(cache.get("status"))) return "degraded";
+    if ("degraded".equals(database.get("status")) || "degraded".equals(cache.get("status"))) return "degraded";
+    return "up";
   }
 
   private static double percent(long used, long max) {

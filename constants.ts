@@ -56,7 +56,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'FORCE_EDIT_COMPLETED_SCAN': '强制修改完工扫码数据',
   'FORCE_COMPLETE_SCAN': '强制完工未完成设备',
   'MANAGE_PRODUCTION_REPAIR': '生产维修',
-  'MANAGE_SYSTEM': '系统高级配置'
+  'MANAGE_SYSTEM': '系统高级配置',
+  'VIEW_PERFORMANCE': '查看绩效评价',
+  'MANAGE_PERFORMANCE': '绩效模板与评价管理'
   ,'MANAGE_SALES': '销售立项管理'
   ,'MANAGE_PROCUREMENT': '采购项目管理'
 };

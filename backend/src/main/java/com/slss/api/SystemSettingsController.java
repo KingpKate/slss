@@ -27,6 +27,8 @@ import javax.imageio.ImageIO;
 @RequestMapping("/api/v1/settings")
 public class SystemSettingsController {
   private static final String COMPANY_LOGO = "company_logo";
+  private static final String PRODUCTION_GENERAL_TEMPLATE = "production_general_template";
+  private static final String QUALITY_GENERAL_TEMPLATE = "quality_inspection_general_template";
   private static final Set<String> PUBLIC_KEYS = Set.of("app_name", "theme", "maintenance_mode", "log_retention_days", "login_subtitle", "login_background_mode", "login_background_color", "login_background_images", "login_background_interval", "login_background_overlay", "login_background_position", "login_captcha_enabled", "login_captcha_trigger", "login_captcha_expire", "login_captcha_max_attempts");
   private final SystemSettingRepository settings;
   private final AuditService audit;
@@ -75,6 +77,109 @@ public class SystemSettingsController {
   @GetMapping("/branding")
   public BrandingResponse branding() {
     return new BrandingResponse(value("app_name", "SLSS - 服务器全生命周期系统"), value("theme", "green"), value(COMPANY_LOGO, "/icon.jpg"), settings.findById("app_name").map(SystemSetting::getVersion).orElse(0L), value("login_subtitle", "统一管理生产、售后、资产生命周期与交付风险。"), value("login_background_mode", "single"), value("login_background_color", "#0f172a"), backgroundImages(), boundedInt("login_background_interval", 8, 3, 120), boundedInt("login_background_overlay", 58, 0, 90) / 100.0, value("login_background_position", "center"), Map.of("enabled", Boolean.parseBoolean(value("login_captcha_enabled", "true")), "triggerAfterFailures", boundedInt("login_captcha_trigger", 3, 1, 20), "expireSeconds", boundedInt("login_captcha_expire", 120, 30, 900), "maxAttempts", boundedInt("login_captcha_max_attempts", 5, 1, 10)));
+  }
+
+  @GetMapping("/production-template")
+  @PreAuthorize("hasAuthority('PERM_MANAGE_SCAN_TEMPLATE')")
+  public Map<String,Object> productionTemplate() {
+    try {
+      var raw = value(PRODUCTION_GENERAL_TEMPLATE, "[]");
+      var fields = new ObjectMapper().readValue(raw, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String,Object>>>() {});
+      return Map.of("fields", fields);
+    } catch (Exception ex) { return Map.of("fields", List.of()); }
+  }
+
+  @PutMapping("/production-template")
+  @PreAuthorize("hasAuthority('PERM_MANAGE_SCAN_TEMPLATE')")
+  @Transactional
+  public Map<String,Object> updateProductionTemplate(@RequestBody Map<String,Object> body, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
+    var fields = body == null ? null : body.get("fields");
+    if (!(fields instanceof List<?> list) || list.size() > 200) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "通用模板流程数量必须在 0-200 之间");
+    try {
+      var normalized = new ArrayList<Map<String,Object>>();
+      var keys = new java.util.HashSet<String>();
+      for (Object item : list) {
+        if (!(item instanceof Map<?,?> source)) continue;
+        var key = String.valueOf(source.containsKey("key") ? source.get("key") : "").trim();
+        var label = String.valueOf(source.containsKey("label") ? source.get("label") : "").trim();
+        if (key.isBlank() || label.isBlank() || !keys.add(key.toLowerCase())) continue;
+        var field = new LinkedHashMap<String,Object>(); field.put("key", key); field.put("label", label);
+        field.put("required", Boolean.TRUE.equals(source.get("required"))); field.put("enabled", !Boolean.FALSE.equals(source.get("enabled")));
+        var section = String.valueOf(source.containsKey("section") ? source.get("section") : "组装").trim();
+        if (!Set.of("组装", "高温间测试", "包装").contains(section)) section = "组装";
+        field.put("section", section); field.put("scanRequired", Boolean.TRUE.equals(source.get("scanRequired"))); field.put("requireModel", Boolean.TRUE.equals(source.get("requireModel"))); normalized.add(field);
+      }
+      saveRaw(PRODUCTION_GENERAL_TEMPLATE, new ObjectMapper().writeValueAsString(normalized));
+      audit.record(actor == null ? "system" : actor.getName(), "PRODUCTION_GENERAL_TEMPLATE_UPDATE", "SYSTEM_SETTINGS", PRODUCTION_GENERAL_TEMPLATE, "更新生产通用模板", http.getRemoteAddr(), true);
+      return Map.of("fields", normalized);
+    } catch (ResponseStatusException ex) { throw ex; } catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "通用模板格式无效"); }
+  }
+
+  @GetMapping("/quality-inspection-template")
+  @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_MANAGE_SCAN_TEMPLATE','PERM_MANAGE_SYSTEM')")
+  public Map<String,Object> qualityInspectionTemplate() {
+    try {
+      var raw = value(QUALITY_GENERAL_TEMPLATE, "[]");
+      var parsed = new ObjectMapper().readValue(raw, Object.class);
+      if (parsed instanceof Map<?,?> map && map.get("stages") instanceof List<?> stages) return Map.of("stages", canonicalQualityStages(stages));
+      if (parsed instanceof List<?> fields) return Map.of("stages", canonicalQualityStages(List.of(Map.of("key", "initial", "label", "初检", "fields", fields))));
+      return Map.of("stages", canonicalQualityStages(List.of()));
+    } catch (Exception ex) { return Map.of("stages", canonicalQualityStages(List.of())); }
+  }
+
+  @PutMapping("/quality-inspection-template")
+  @PreAuthorize("hasAnyAuthority('PERM_MANAGE_SCAN_TEMPLATE','PERM_MANAGE_SYSTEM')")
+  @Transactional
+  public Map<String,Object> updateQualityInspectionTemplate(@RequestBody Map<String,Object> body, java.security.Principal actor, jakarta.servlet.http.HttpServletRequest http) {
+    var stages = body == null ? null : body.get("stages");
+    if (!(stages instanceof List<?> stageList) || stageList.size() != 3) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "检验单通用模板必须包含初检、复检、终检三个阶段");
+    try {
+      var normalizedStages = new ArrayList<Map<String,Object>>(); var stageKeys = new java.util.HashSet<String>();
+      for (Object stageItem : stageList) {
+        if (!(stageItem instanceof Map<?,?> stage)) continue;
+        var stageKey = String.valueOf(stage.containsKey("key") ? stage.get("key") : "").trim();
+        var stageLabel = String.valueOf(stage.containsKey("label") ? stage.get("label") : "").trim();
+        var stageFields = stage.get("fields");
+        if (stageKey.isBlank() || stageLabel.isBlank() || !stageKeys.add(stageKey.toLowerCase()) || !(stageFields instanceof List<?> fields) || fields.size() > 200) continue;
+        var normalizedFields = new ArrayList<Map<String,Object>>(); var fieldKeys = new java.util.HashSet<String>();
+        for (Object item : fields) {
+          if (!(item instanceof Map<?,?> source)) continue;
+          var key = String.valueOf(source.containsKey("key") ? source.get("key") : "").trim();
+          var label = String.valueOf(source.containsKey("label") ? source.get("label") : "").trim();
+          if (key.isBlank() || label.isBlank() || !fieldKeys.add(key.toLowerCase())) continue;
+          var field = new LinkedHashMap<String,Object>(); field.put("key", key); field.put("label", label);
+          field.put("required", Boolean.TRUE.equals(source.get("required"))); field.put("requireModel", Boolean.TRUE.equals(source.get("requireModel"))); field.put("enabled", !Boolean.FALSE.equals(source.get("enabled"))); normalizedFields.add(field);
+        }
+        normalizedStages.add(new LinkedHashMap<>(Map.of("key", stageKey, "label", stageLabel, "fields", normalizedFields)));
+      }
+      if (normalizedStages.size() != 3) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "初检、复检、终检阶段信息不完整");
+      normalizedStages = new ArrayList<>(canonicalQualityStages(normalizedStages));
+      saveRaw(QUALITY_GENERAL_TEMPLATE, new ObjectMapper().writeValueAsString(Map.of("stages", normalizedStages)));
+      audit.record(actor == null ? "system" : actor.getName(), "QUALITY_GENERAL_TEMPLATE_UPDATE", "SYSTEM_SETTINGS", QUALITY_GENERAL_TEMPLATE, "更新检验单通用模板", http.getRemoteAddr(), true);
+      return Map.of("stages", normalizedStages);
+    } catch (ResponseStatusException ex) { throw ex; } catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "检验单通用模板格式无效"); }
+  }
+
+  /** Always expose the three contractual inspection stages in a stable order.
+   * Older installations stored a single flat list or arbitrary stage labels;
+   * those records are migrated in-memory without discarding their details. */
+  private List<Map<String,Object>> canonicalQualityStages(List<?> source) {
+    var result = new ArrayList<Map<String,Object>>();
+    var keys = List.of("initial", "recheck", "final");
+    var labels = List.of("初检", "复检", "终检");
+    for (int i = 0; i < 3; i++) {
+      Map<?,?> found = null;
+      for (Object item : source) if (item instanceof Map<?,?> stage) {
+        var key = String.valueOf(stage.containsKey("key") ? stage.get("key") : "").trim().toLowerCase();
+        var label = String.valueOf(stage.containsKey("label") ? stage.get("label") : "").trim();
+        if (keys.get(i).equals(key) || labels.get(i).equals(label)) { found = stage; break; }
+      }
+      List<?> fields = found != null && found.get("fields") instanceof List<?> list ? list : List.of();
+      if (found == null && i == 0 && source.size() == 1 && source.get(0) instanceof Map<?,?> legacy && legacy.get("fields") instanceof List<?> legacyFields) fields = legacyFields;
+      var stage = new LinkedHashMap<String,Object>(); stage.put("key", keys.get(i)); stage.put("label", labels.get(i));
+      stage.put("fields", fields); result.add(stage);
+    }
+    return result;
   }
 
   @PutMapping

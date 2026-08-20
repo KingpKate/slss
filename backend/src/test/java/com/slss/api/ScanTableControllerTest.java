@@ -110,6 +110,7 @@ class ScanTableControllerTest {
   void completeRowMarksRowAndTableWhenRequiredValuesExist() {
     addValue("machine_sn", "MACHINE-001", "001");
     addValue("cpu_sn", "CPU-001", "001");
+    row.setCompletedProcessKeys("machine_sn,cpu_sn");
 
     var result = controller.completeRow(1L, 1);
 
@@ -137,8 +138,8 @@ class ScanTableControllerTest {
     existing.setFieldValue("CPU-DUP");
     existingRow.getValues().add(existing);
 
-    // The controller's repository lookup is tenant-scoped. The fixture uses
-    // legacy null-tenant data, which is covered by the dedicated query.
+    // Legacy null-tenant fixture remains supported during the global scan
+    // lookup rollout.
     var values = (ScanTableValueRepository) ReflectionTestUtils.getField(controller, "values");
     when(values.findByValueWithoutTenant("CPU-DUP")).thenReturn(List.of(existing));
 
@@ -222,7 +223,7 @@ class ScanTableControllerTest {
 
     var result = controller.listTemplates();
 
-    assertEquals(1, result.size());
+    assertEquals(2, result.size());
     assertEquals("客户 A", result.get(0).get("customerName"));
   }
 

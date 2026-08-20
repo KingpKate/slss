@@ -3,7 +3,7 @@ import React, { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { ThemeProvider } from './components/ThemeContext';
-import { Layout } from './components/Layout';
+import { AppShell } from './components/app-shell/AppShell';
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ServiceOrders = lazy(() => import('./pages/ServiceOrders'));
@@ -13,6 +13,8 @@ const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const SalesProcurement = lazy(() => import('./pages/SalesProcurement'));
 const ProductionScanTemplates = lazy(() => import('./pages/ProductionScanTemplates'));
 const ProductionMES = lazy(() => import('./pages/ProductionMES'));
+const PerformanceEvaluation = lazy(() => import('./pages/PerformanceEvaluation'));
+const QualityManagement = lazy(() => import('./pages/QualityManagement'));
 import { Permission } from './types';
 
 // Updated to check permissions instead of roles
@@ -23,12 +25,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredPermission?:
   if (!user) return <Navigate to="/login" replace />;
   
   // If specific permission is required, check it
-  if (requiredPermission && !user.permissions.includes(requiredPermission)) {
+  const hasPermission = requiredPermission
+    ? user.permissions.includes(requiredPermission)
+      // Keep existing production users with the former management permission
+      // able to access the performance workspace while VIEW_PERFORMANCE is
+      // rolled out through the permission center.
+      || (requiredPermission === 'VIEW_PERFORMANCE' && (user.permissions.includes('MANAGE_PERFORMANCE') || user.permissions.includes('MANAGE_SYSTEM')))
+    : true;
+  if (!hasPermission) {
     // If user has no access, redirect to dashboard or show unauthorized
     return <Navigate to="/dashboard" replace />;
   }
   
-  return <Layout>{children}</Layout>;
+  return <AppShell>{children}</AppShell>;
 };
 
 const AppContent = () => {
@@ -63,6 +72,17 @@ const AppContent = () => {
           <ProductionMES />
         </ProtectedRoute>
       } />
+      <Route path="/quality" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/inspection-orders" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/templates" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/templates/new" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/templates/general" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/templates/library/*" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/quality/production-import/*" element={<ProtectedRoute requiredPermission="VIEW_PRODUCTION"><QualityManagement /></ProtectedRoute>} />
+      <Route path="/hr/performance" element={
+        <ProtectedRoute requiredPermission="VIEW_PERFORMANCE"><PerformanceEvaluation /></ProtectedRoute>
+      } />
+      <Route path="/performance" element={<Navigate to="/hr/performance" replace />} />
 
       {/* Legacy production routes now converge on the MES workbench */}
       <Route path="/production/list" element={

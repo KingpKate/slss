@@ -3,4 +3,5 @@ import com.slss.domain.CustomerTenant; import com.slss.domain.User; import org.s
 public interface CustomerTenantRepository extends JpaRepository<CustomerTenant,Long>{
  Optional<CustomerTenant> findByTenantCode(String code);
  @Query("select t.id from CustomerTenant t join UserTenantLink l on l.tenant.id=t.id where l.user.id=:userId and t.status='ACTIVE'") Set<Long> findActiveIdsByUserId(@Param("userId") Long userId);
+ @Query("select t.id from CustomerTenant t where t.status='ACTIVE'") Set<Long> findActiveIds();
 }

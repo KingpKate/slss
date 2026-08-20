@@ -12,8 +12,6 @@ import {
   CreditCard, Package
 } from 'lucide-react';
 import { STATUS_COLORS, STATUS_LABELS } from '../constants';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 // Workflow Steps
 const STEPS = [
@@ -374,12 +372,13 @@ const RepairReportModal: React.FC<{
     setDownloading(false);
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
     setDownloading(true);
     const element = document.querySelector('.printable-content') as HTMLElement;
     if (element) {
       // Use html2canvas to capture the element
-      html2canvas(element, { scale: 2 }).then((canvas) => {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas = await html2canvas(element, { scale: 2 });
         const imgData = canvas.toDataURL('image/png');
         // A4 size: 210mm x 297mm
         const pdf = new jsPDF('p', 'mm', 'a4');
@@ -390,7 +389,6 @@ const RepairReportModal: React.FC<{
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
         pdf.save(`维修报告_${order.machine_sn}.pdf`);
         setDownloading(false);
-      });
     } else {
       setDownloading(false);
     }

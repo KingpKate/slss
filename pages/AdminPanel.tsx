@@ -4,7 +4,7 @@ import { UserRole, User, Permission, DatabaseConfig, RedisConfig, SystemStatus }
 import { useTheme, THEMES, THEME_SWATCH_COLORS, ThemeColor } from '../components/ThemeContext';
 import { 
   Shield, UserCheck, Settings, Save, Key, Globe, Cpu, AlertCircle, CheckCircle, 
-  Database, Activity, Server, HardDrive, Zap, RefreshCw, Lock, Radio, Network,
+  Database, Activity, Zap, RefreshCw, Lock, Radio, Network,
   Palette, X
 } from 'lucide-react';
 import { ROLE_LABELS, PERMISSION_LABELS } from '../constants';
@@ -93,6 +93,13 @@ const StatusIndicator = ({ status, text }: { status: 'good' | 'warning' | 'error
   );
 };
 
+const formatBytes = (value: unknown) => {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
 const AdminPanel: React.FC = () => {
   // -- Navigation State --
   const [activeTab, setActiveTab] = useState<'overview' | 'status' | 'database' | 'ai' | 'users' | 'general'>('overview');
@@ -110,6 +117,12 @@ const AdminPanel: React.FC = () => {
   const [permissionDomain, setPermissionDomain] = useState('all');
   const [permissionSearch, setPermissionSearch] = useState('');
   const [authorizedOnly, setAuthorizedOnly] = useState(false);
+  const [permissionUserSearch, setPermissionUserSearch] = useState('');
+  const [permissionUserStatus, setPermissionUserStatus] = useState<'all' | 'active' | 'pending'>('all');
+  const [permissionEditorUser, setPermissionEditorUser] = useState<User | null>(null);
+  const [permissionEditorDomain, setPermissionEditorDomain] = useState('all');
+  const [permissionEditorDraft, setPermissionEditorDraft] = useState<Permission[]>([]);
+  const [permissionEditorSaving, setPermissionEditorSaving] = useState(false);
   const [permissionDiff, setPermissionDiff] = useState<{ username: string; added: string[]; removed: string[] } | null>(null);
   const [permissionDetail, setPermissionDetail] = useState<any | null>(null);
   const [permissionSimulation, setPermissionSimulation] = useState<any | null>(null);
@@ -280,6 +293,9 @@ const AdminPanel: React.FC = () => {
   const [aiChannelForm, setAiChannelForm] = useState({ id: null as number | null, version: 0, name: '', provider: 'custom', protocol: 'OPENAI_COMPATIBLE', baseUrl: '', model: '', apiKey: '', enabled: true, priority: 100, weight: 100, timeoutMs: 30000 });
   const [aiModelOptions, setAiModelOptions] = useState<string[]>([]);
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
+  const [aiChannelQuery, setAiChannelQuery] = useState('');
+  const [aiStatusFilter, setAiStatusFilter] = useState<'ALL' | 'UP' | 'DOWN' | 'UNKNOWN'>('ALL');
+  const [aiDiscoveryState, setAiDiscoveryState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   // -- Feedback State --
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -364,15 +380,17 @@ const AdminPanel: React.FC = () => {
   };
 
   const discoverAiModels = async (id?: number | null) => {
-    if (!id) { setSaveStatus({ type: 'error', message: '请先保存渠道，再自动发现模型' }); return; }
+    if (!id) { setSaveStatus({ type: 'error', message: '请先保存渠道，再自动发现模型' }); setAiDiscoveryState('error'); return; }
     setAiModelsLoading(true);
+    setAiDiscoveryState('loading');
     try {
       const result = await api.aiChannelModels(id);
       const models = Array.isArray(result?.models) ? result.models.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0) : [];
       setAiModelOptions(models);
       if (models.length && !models.includes(aiChannelForm.model)) setAiChannelForm(previous => ({ ...previous, model: models[0] }));
+      setAiDiscoveryState(models.length ? 'success' : 'error');
       setSaveStatus({ type: 'success', message: `已发现 ${models.length} 个可用模型` });
-    } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || '模型发现失败，请检查 API 地址和密钥' }); }
+    } catch (e: any) { setAiDiscoveryState('error'); setSaveStatus({ type: 'error', message: e?.message || '模型发现失败，请检查 API 地址和密钥' }); }
     finally { setAiModelsLoading(false); }
   };
   const applyAiPreset = (preset: typeof AI_CHANNEL_PRESETS[number]) => {
@@ -383,13 +401,14 @@ const AdminPanel: React.FC = () => {
       baseUrl: preset.baseUrl,
       model: preset.model,
     }));
-    setAiModelOptions([]);
+    setAiModelOptions([]); setAiDiscoveryState('idle');
     setSaveStatus({ type: 'success', message: `已套用「${preset.label}」配置样例，请填写名称和 API Key` });
   };
   const saveAiChannel = async () => {
     try {
       if (!aiChannelForm.name.trim() || !aiChannelForm.baseUrl.trim()) throw new Error('渠道名称和接口地址不能为空');
       const payload = { ...aiChannelForm, provider: aiChannelForm.protocol === 'OPENAI_COMPATIBLE' ? 'openai-compatible' : aiChannelForm.protocol.toLowerCase() };
+      let discoveryWarning: string | null = null;
       let saved = aiChannelForm.id ? await api.updateAiChannel(aiChannelForm.id, payload) : await api.createAiChannel(payload);
       if (saved.id) {
         try {
@@ -401,19 +420,22 @@ const AdminPanel: React.FC = () => {
           const latest = await api.aiChannels();
           saved = latest.find((item: any) => item.id === saved.id) || { ...saved, model: firstModel || saved.model };
         } catch (discoveryError: any) {
-          setSaveStatus({ type: 'error', message: `渠道已保存，但模型自动发现失败：${discoveryError?.message || '请稍后重试'}` });
+          discoveryWarning = discoveryError?.message || '请检查 API 地址和密钥后重试模型发现';
+          setAiDiscoveryState('error');
         }
       }
       setAiChannels(previous => aiChannelForm.id ? previous.map(item => item.id === saved.id ? saved : item) : [...previous, saved]);
       setAiChannelForm(previous => ({ ...previous, id: null, version: 0, name: '', baseUrl: '', model: '', apiKey: '' }));
-      setAiModelOptions([]);
-      setSaveStatus({ type: 'success', message: aiChannelForm.id ? 'AI 渠道配置已更新' : 'AI 渠道已保存，密钥已加密存储' });
+      setAiModelOptions([]); setAiDiscoveryState(discoveryWarning ? 'error' : 'idle');
+      setSaveStatus(discoveryWarning
+        ? { type: 'error', message: `渠道已保存，但模型自动发现失败：${discoveryWarning}` }
+        : { type: 'success', message: aiChannelForm.id ? 'AI 渠道配置已更新' : 'AI 渠道已保存，密钥已加密存储' });
     } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道保存失败' }); }
   };
   const testAiChannel = async (id: number) => { try { await api.testAiChannel(id); const latest = await api.aiChannels(); setAiChannels(latest); setSaveStatus({ type: 'success', message: 'AI 渠道连接正常' }); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道连接失败' }); } };
   const removeAiChannel = async (id: number) => { try { await api.deleteAiChannel(id); setAiChannels(previous => previous.filter(item => item.id !== id)); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道删除失败' }); } };
-  const editAiChannel = (channel: any) => { setAiChannelForm({ id: channel.id, version: channel.version || 0, name: channel.name || '', provider: channel.provider || 'custom', protocol: channel.protocol || 'OPENAI_COMPATIBLE', baseUrl: channel.baseUrl || '', model: channel.model || '', apiKey: '', enabled: channel.enabled !== false, priority: channel.priority ?? 100, weight: channel.weight ?? 100, timeoutMs: channel.timeoutMs ?? 30000 }); setAiModelOptions([]); void discoverAiModels(channel.id); };
-  const resetAiChannelForm = () => { setAiChannelForm({ id: null, version: 0, name: '', provider: 'custom', protocol: 'OPENAI_COMPATIBLE', baseUrl: '', model: '', apiKey: '', enabled: true, priority: 100, weight: 100, timeoutMs: 30000 }); setAiModelOptions([]); };
+  const editAiChannel = (channel: any) => { setAiChannelForm({ id: channel.id, version: channel.version || 0, name: channel.name || '', provider: channel.provider || 'custom', protocol: channel.protocol || 'OPENAI_COMPATIBLE', baseUrl: channel.baseUrl || '', model: channel.model || '', apiKey: '', enabled: channel.enabled !== false, priority: channel.priority ?? 100, weight: channel.weight ?? 100, timeoutMs: channel.timeoutMs ?? 30000 }); setAiModelOptions([]); setAiDiscoveryState('idle'); void discoverAiModels(channel.id); };
+  const resetAiChannelForm = () => { setAiChannelForm({ id: null, version: 0, name: '', provider: 'custom', protocol: 'OPENAI_COMPATIBLE', baseUrl: '', model: '', apiKey: '', enabled: true, priority: 100, weight: 100, timeoutMs: 30000 }); setAiModelOptions([]); setAiDiscoveryState('idle'); };
 
   const togglePermission = (userId: number, perm: Permission) => {
     setPermissionDirty(previous => new Set(previous).add(userId));
@@ -427,20 +449,34 @@ const AdminPanel: React.FC = () => {
       };
     }));
   };
-  const saveUserPermissions = async (userId: number) => {
+  const openPermissionEditor = (user: User) => {
+    setPermissionEditorUser(user);
+    setPermissionEditorDraft([...(user.personalPermissions || [])]);
+    setPermissionEditorDomain('all');
+    setAdminError('');
+  };
+  const saveUserPermissions = async (userId: number, requestedPermissions?: Permission[]) => {
     const target = users.find(user => user.id === userId);
     if (!target) return;
     const before = normalizePermissionList(target.personalPermissions || []);
+    const requested = requestedPermissions || target.personalPermissions || [];
     try {
       {
-        const updated = await api.updateUserPermissions(userId, target.personalPermissions || []);
+        const updated = await api.updateUserPermissions(userId, requested);
         const after = normalizePermissionList(updated.personalPermissions || target.personalPermissions);
         setUsers(previous => previous.map(user => user.id === userId ? { ...user, permissions: normalizePermissionList(updated.permissions || target.permissions), personalPermissions: after, permissionGroupIds: (updated.permissionGroupIds || user.permissionGroupIds || []).map((id:any) => Number(id)), permissionSources: updated.permissionSources || user.permissionSources } : user));
         setPermissionDiff({ username: target.username, added: after.filter(permission => !before.includes(permission)), removed: before.filter(permission => !after.includes(permission)) });
       }
       setPermissionDirty(previous => { const next = new Set(previous); next.delete(userId); return next; });
       setSaveStatus({ type: 'success', message: `用户 ${target.username} 的权限已保存` });
-    } catch (error: any) { setSaveStatus({ type: 'error', message: error.message || '权限保存失败' }); }
+    } catch (error: any) { setSaveStatus({ type: 'error', message: error.message || '权限保存失败' }); throw error; }
+  };
+  const savePermissionEditor = async () => {
+    if (!permissionEditorUser) return;
+    setPermissionEditorSaving(true);
+    try { await saveUserPermissions(permissionEditorUser.id, permissionEditorDraft); setPermissionEditorUser(null); }
+    catch { /* saveUserPermissions already exposes the API error */ }
+    finally { setPermissionEditorSaving(false); }
   };
   const toggleGroupPermission = (permission: Permission) => {
     if (selectedPermissionGroup == null) return;
@@ -550,6 +586,20 @@ const AdminPanel: React.FC = () => {
     const hasAuthorization = users.some(user => (user.permissions || []).includes(key as Permission));
     return inDomain && matchesSearch && (!authorizedOnly || hasAuthorization);
   });
+  const visiblePermissionUsers = users.filter(user => {
+    const query = permissionUserSearch.trim().toLowerCase();
+    return (!query || user.username.toLowerCase().includes(query) || String(user.id).includes(query) || (ROLE_LABELS[user.role] || user.role).toLowerCase().includes(query))
+      && (permissionUserStatus === 'all' || user.status === permissionUserStatus);
+  });
+  const visibleEditorPermissionEntries = Object.entries(PERMISSION_LABELS).filter(([key]) => permissionEditorDomain === 'all' || (PERMISSION_DOMAINS[permissionEditorDomain] || []).includes(key as Permission));
+
+  const visibleAiChannels = aiChannels.filter(channel => {
+    const query = aiChannelQuery.trim().toLowerCase();
+    const searchable = [channel.name, channel.baseUrl, channel.model, channel.provider, channel.protocol].filter(Boolean).join(' ').toLowerCase();
+    const status = channel.enabled === false ? 'DISABLED' : (channel.lastStatus || 'UNKNOWN');
+    return (!query || searchable.includes(query)) && (aiStatusFilter === 'ALL' || status === aiStatusFilter);
+  });
+  const discoveredModelCount = new Set(aiChannels.flatMap(channel => Array.isArray(channel.models) ? channel.models : [])).size;
 
   return (
     <div className="slss-admin-page flex flex-col gap-6 md:flex-row min-h-[calc(100vh-100px)]">
@@ -634,80 +684,25 @@ const AdminPanel: React.FC = () => {
               <div className="space-y-6">
                  {statusLoading && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">正在读取后端运行状态…</div>}
                  {!sysStatus && !statusLoading && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">无法读取后端运行状态，请检查接口与数据库连接。</div>}
-                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                      <p className="text-xs text-blue-500 uppercase font-bold">运行时间 (Uptime)</p>
-                      <p className="text-2xl font-mono text-blue-900 mt-1">{sysStatus ? `${(Number(sysStatus.uptimeSeconds || 0) / 3600).toFixed(1)} hrs` : '—'}</p>
-                    </div>
-                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                      <p className="text-xs text-indigo-500 uppercase font-bold">活跃连接数</p>
-                      <p className="text-2xl font-mono text-indigo-900 mt-1">{sysStatus?.database?.activeConnections ?? '—'}</p>
-                    </div>
-                    <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
-                      <p className="text-xs text-emerald-600 uppercase font-bold">数据库状态</p>
-                      <div className="flex items-center mt-1">
-                        <StatusIndicator status={sysStatus?.database?.status === 'connected' ? 'good' : 'error'} text={sysStatus?.database?.status === 'connected' ? 'Connected' : (sysStatus?.database?.status || 'Unknown')} />
-                        <span className="ml-2 text-xs text-gray-500">({sysStatus?.database?.latencyMs ?? '—'}ms)</span>
-                      </div>
-                    </div>
-                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-100">
-                      <p className="text-xs text-orange-600 uppercase font-bold">Redis 缓存</p>
-                      <div className="mt-1">
-                        <StatusIndicator 
-                          status={sysStatus?.redis?.status === 'connected' ? 'good' : 'error'}
-                          text={sysStatus?.redis?.status || 'Unknown'}
-                        />
-                      </div>
-                    </div>
-                 </div>
-
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <div className="border border-gray-200 rounded-lg p-4">
-                     <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center"><Server className="w-4 h-4 mr-2"/> CPU 负载</h3>
-                     <div className="relative pt-1">
-                       <div className="flex mb-2 items-center justify-between">
-                         <div><span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">Load</span></div>
-                         <div className="text-right"><span className="text-xs font-semibold inline-block text-blue-600">{sysStatus?.jvm?.systemLoadAverage ?? '—'}</span></div>
-                       </div>
-                       <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-blue-100">
-                         <div style={{ width: `${Math.min(100, Number(sysStatus?.jvm?.systemLoadAverage || 0) * 100)}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500 transition-all duration-500"></div>
-                       </div>
-                     </div>
+                 {sysStatus && <>
+                   <div className="slss-card flex flex-wrap items-center justify-between gap-4 border-[var(--theme-primary-border)] p-5">
+                     <div><p className="text-xs font-bold uppercase tracking-[.16em] text-[var(--theme-primary)]">Runtime health</p><h2 className="mt-1 text-xl font-bold text-slate-900">系统监控概览</h2><p className="mt-1 text-xs text-slate-500">版本 {sysStatus.version || '—'} · 最近检查 {sysStatus.timestamp ? new Date(sysStatus.timestamp).toLocaleString('zh-CN') : '—'}</p></div>
+                     <StatusIndicator status={sysStatus.status === 'up' ? 'good' : sysStatus.status === 'degraded' ? 'warning' : 'error'} text={sysStatus.status === 'up' ? '运行正常' : sysStatus.status === 'degraded' ? '部分降级' : '异常'} />
                    </div>
-
-                   <div className="border border-gray-200 rounded-lg p-4">
-                     <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center"><HardDrive className="w-4 h-4 mr-2"/> 内存使用率</h3>
-                     <div className="relative pt-1">
-                       <div className="flex mb-2 items-center justify-between">
-                         <div><span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-purple-600 bg-purple-200">RAM</span></div>
-                         <div className="text-right"><span className="text-xs font-semibold inline-block text-purple-600">{sysStatus?.jvm?.memoryUsagePercent ?? '—'}%</span></div>
-                       </div>
-                       <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-purple-100">
-                         <div style={{ width: `${Math.min(100, Number(sysStatus?.jvm?.memoryUsagePercent || 0))}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-purple-500 transition-all duration-500"></div>
-                       </div>
-                     </div>
+                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                     <div className="slss-card p-4"><p className="text-xs font-semibold text-slate-500">应用运行时间</p><p className="mt-2 font-mono text-2xl font-bold text-[var(--theme-primary-strong)]">{(Number(sysStatus.uptimeSeconds || 0) / 3600).toFixed(1)} h</p></div>
+                     <div className="slss-card p-4"><p className="text-xs font-semibold text-slate-500">JVM 内存</p><p className="mt-2 font-mono text-2xl font-bold text-[var(--theme-primary-strong)]">{sysStatus.jvm?.memoryUsagePercent ?? '—'}%</p><p className="mt-1 text-xs text-slate-500">堆内存已用 / 最大：{formatBytes(sysStatus.jvm?.heapUsedBytes)} / {formatBytes(sysStatus.jvm?.heapMaxBytes)}</p></div>
+                     <div className="slss-card p-4"><p className="text-xs font-semibold text-slate-500">JVM 线程</p><p className="mt-2 font-mono text-2xl font-bold text-[var(--theme-primary-strong)]">{sysStatus.jvm?.threadCount ?? '—'}</p><p className="mt-1 text-xs text-slate-500">峰值 {sysStatus.jvm?.peakThreadCount ?? '—'} · CPU {sysStatus.jvm?.availableProcessors ?? '—'} 核</p></div>
+                     <div className="slss-card p-4"><p className="text-xs font-semibold text-slate-500">系统负载</p><p className="mt-2 font-mono text-2xl font-bold text-[var(--theme-primary-strong)]">{sysStatus.jvm?.systemLoadAverage ?? '—'}</p><p className="mt-1 text-xs text-slate-500">Java {sysStatus.jvm?.javaVersion || '—'}</p></div>
                    </div>
-                 </div>
+                   <div className="slss-card p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-900">依赖检查</h3><p className="mt-1 text-xs text-slate-500">应用、数据库和缓存的实时探针结果</p></div><span className="text-xs text-slate-500">每 15 秒自动刷新</span></div><div className="grid gap-3 md:grid-cols-3">{Object.values(sysStatus.checks || {}).map((check: any) => <div key={check.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex items-center justify-between gap-3"><span className="font-semibold text-slate-700">{check.label}</span><StatusIndicator status={check.status === 'up' || check.status === 'connected' ? 'good' : check.status === 'degraded' ? 'warning' : 'error'} text={check.status === 'up' ? '正常' : check.status === 'connected' ? '已连接' : check.status === 'degraded' ? '降级' : '不可用'} /></div><p className="mt-2 text-xs text-slate-500">{check.latencyMs != null ? `探测延迟 ${check.latencyMs} ms` : '运行探针正常'}</p></div>)}</div></div>
+                 </>}
               </div>
             )}
 
             {/* --- TAB: DATABASE --- */}
             {activeTab === 'database' && (
               <div className="space-y-8 animate-in fade-in">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-                    <div className="flex items-center justify-between"><h3 className="font-semibold text-emerald-900">MySQL 实时连接</h3><StatusIndicator status={sysStatus?.database?.status === 'connected' ? 'good' : 'error'} text={sysStatus?.database?.status || '未检测'} /></div>
-                    <p className="mt-3 text-sm text-emerald-800">{sysStatus?.database?.product || '等待后端检测'} · 延迟 {sysStatus?.database?.latencyMs ?? '—'} ms</p>
-                    <p className="mt-1 text-xs text-emerald-700">连接池：{sysStatus?.database?.activeConnections ?? '—'} 活跃 / {sysStatus?.database?.totalConnections ?? '—'} 总数</p>
-                    {sysStatus?.database?.error && <p className="mt-2 text-xs text-red-700">{sysStatus.database.error}</p>}
-                  </div>
-                  <div className="rounded-xl border border-orange-200 bg-orange-50 p-5">
-                    <div className="flex items-center justify-between"><h3 className="font-semibold text-orange-900">Redis 缓存连接</h3><StatusIndicator status={sysStatus?.redis?.status === 'connected' ? 'good' : 'error'} text={sysStatus?.redis?.status || '未检测'} /></div>
-                    <p className="mt-3 text-sm text-orange-800">实时 PING 延迟 {sysStatus?.redis?.latencyMs ?? '—'} ms</p>
-                    <p className="mt-1 text-xs text-orange-700">缓存不可用时，异步任务将按降级策略运行。</p>
-                    {sysStatus?.redis?.error && <p className="mt-2 text-xs text-red-700">{sysStatus.redis.error}</p>}
-                  </div>
-                </div>
                 {/* Main DB Config */}
                 <div>
                    <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
@@ -813,12 +808,13 @@ const AdminPanel: React.FC = () => {
                   </h3>
 
                   <section className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-cyan-50 p-5 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-violet-950">AI 渠道中心</h4><p className="mt-1 text-xs text-slate-600">多供应商统一接入 · 优先级故障转移 · 权重路由 · 服务端加密密钥</p></div><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">{aiChannels.filter(c => c.enabled !== false).length}/{aiChannels.length} 已启用</span></div>
-                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">渠道总数</p><p className="mt-1 text-xl font-bold text-slate-900">{aiChannels.length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">在线渠道</p><p className="mt-1 text-xl font-bold text-emerald-600">{aiChannels.filter(c => c.lastStatus === 'UP').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">故障渠道</p><p className="mt-1 text-xl font-bold text-rose-600">{aiChannels.filter(c => c.lastStatus === 'DOWN').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">路由策略</p><p className="mt-1 text-sm font-bold text-violet-700">优先级 + 权重</p></div></div>
-                    <div className="mt-4 space-y-2">{aiChannels.length === 0 ? <div className="rounded-xl border border-dashed border-violet-200 bg-white/70 px-4 py-8 text-center text-xs text-slate-500">尚未配置 AI 渠道，请从下方添加 OpenAI、Anthropic、Gemini 或自定义兼容接口。</div> : aiChannels.map((channel, index) => <div key={channel.id} className="rounded-xl border border-white bg-white px-3 py-3 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${channel.enabled === false ? 'bg-slate-300' : channel.lastStatus === 'UP' ? 'bg-emerald-500' : channel.lastStatus === 'DOWN' ? 'bg-red-500' : 'bg-amber-400'}`} /><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{index + 1}. {channel.name} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{channel.protocol}</span>{channel.enabled === false && <span className="ml-1 text-[10px] text-slate-400">已停用</span>}</p><p className="truncate text-xs text-slate-500">{channel.baseUrl} · {channel.model}</p></div></div><div className="flex items-center gap-1.5"><span className="rounded bg-slate-50 px-2 py-1 text-[10px] text-slate-500">P{channel.priority} / W{channel.weight}</span><button onClick={() => testAiChannel(channel.id)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">测试</button><button onClick={() => editAiChannel(channel)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">编辑</button><button onClick={() => removeAiChannel(channel.id)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">删除</button></div></div>{channel.lastError && <p className="mt-2 rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">最近错误：{channel.lastError}</p>}</div>)}</div>
+                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-violet-950">AI 渠道中心</h4><p className="mt-1 text-xs text-slate-600">多供应商统一接入 · 优先级故障转移 · 权重路由 · 服务端加密密钥</p></div><div className="flex items-center gap-2"><button type="button" onClick={async () => { try { setAiChannels(await api.aiChannels()); setSaveStatus({ type: 'success', message: 'AI 渠道状态已刷新' }); } catch (e: any) { setSaveStatus({ type: 'error', message: e?.message || 'AI 渠道刷新失败' }); } }} className="rounded-lg border border-violet-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-violet-700 hover:border-violet-400">刷新</button><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">{aiChannels.filter(c => c.enabled !== false).length}/{aiChannels.length} 已启用</span></div></div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">渠道总数</p><p className="mt-1 text-xl font-bold text-slate-900">{aiChannels.length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">在线渠道</p><p className="mt-1 text-xl font-bold text-emerald-600">{aiChannels.filter(c => c.lastStatus === 'UP').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">故障渠道</p><p className="mt-1 text-xl font-bold text-rose-600">{aiChannels.filter(c => c.lastStatus === 'DOWN').length}</p></div><div className="rounded-xl bg-white/80 p-3"><p className="text-[11px] text-slate-500">模型目录</p><p className="mt-1 text-sm font-bold text-violet-700">{discoveredModelCount || '自动发现'}</p></div></div>
+                    <div className="mt-4 flex flex-wrap items-center gap-2"><input value={aiChannelQuery} onChange={event => setAiChannelQuery(event.target.value)} placeholder="搜索渠道、协议或模型" aria-label="搜索 AI 渠道" className="min-w-[220px] flex-1 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200" /><select value={aiStatusFilter} onChange={event => setAiStatusFilter(event.target.value as typeof aiStatusFilter)} aria-label="筛选 AI 渠道状态" className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs"><option value="ALL">全部状态</option><option value="UP">在线</option><option value="DOWN">异常</option><option value="UNKNOWN">未测试</option><option value="DISABLED">已停用</option></select><span className="text-[11px] text-slate-500">显示 {visibleAiChannels.length}/{aiChannels.length}</span></div>
+                    <div className="mt-3 space-y-2">{aiChannels.length === 0 ? <div className="rounded-xl border border-dashed border-violet-200 bg-white/70 px-4 py-8 text-center text-xs text-slate-500">尚未配置 AI 渠道，请从下方添加 OpenAI、Anthropic、Gemini 或自定义兼容接口。</div> : visibleAiChannels.length === 0 ? <div className="rounded-xl border border-dashed border-violet-200 bg-white/70 px-4 py-6 text-center text-xs text-slate-500">没有匹配的渠道，请调整搜索或状态筛选。</div> : visibleAiChannels.map((channel, index) => <div key={channel.id} className="rounded-xl border border-white bg-white px-3 py-3 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${channel.enabled === false ? 'bg-slate-300' : channel.lastStatus === 'UP' ? 'bg-emerald-500' : channel.lastStatus === 'DOWN' ? 'bg-red-500' : 'bg-amber-400'}`} /><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{index + 1}. {channel.name} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{channel.protocol}</span>{channel.enabled === false && <span className="ml-1 text-[10px] text-slate-400">已停用</span>}</p><p className="truncate text-xs text-slate-500">{channel.baseUrl} · {channel.model || '未选择模型'}</p></div></div><div className="flex items-center gap-1.5"><span className="rounded bg-slate-50 px-2 py-1 text-[10px] text-slate-500">P{channel.priority} / W{channel.weight}</span><button onClick={() => testAiChannel(channel.id)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">测试</button><button onClick={() => editAiChannel(channel)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-400 hover:text-violet-700">编辑</button><button onClick={() => removeAiChannel(channel.id)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">删除</button></div></div>{channel.lastError && <p className="mt-2 rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">最近错误：{channel.lastError}</p>}</div>)}</div>
                     <div className="mt-5 rounded-xl border border-violet-100 bg-white/80 p-4"><div className="mb-3 flex items-center justify-between"><div><h5 className="text-sm font-semibold text-slate-800">{aiChannelForm.id ? '编辑渠道' : '添加渠道'}</h5><p className="text-[11px] text-slate-500">支持标准协议和任意 OpenAI Compatible 自定义网关。</p></div>{aiChannelForm.id && <button onClick={resetAiChannelForm} className="text-xs text-slate-500 hover:text-violet-700">取消编辑</button>}</div><div className="mb-3 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-cyan-900">配置样例</span><select defaultValue="" onChange={e => { const preset = AI_CHANNEL_PRESETS.find(item => item.key === e.target.value); if (preset) applyAiPreset(preset); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-xs text-cyan-900"><option value="">选择 API 类型自动填充示例</option>{AI_CHANNEL_PRESETS.map(preset => <option key={preset.key} value={preset.key}>{preset.label}</option>)}</select></div><p className="mt-2 text-[11px] leading-5 text-cyan-800">Base URL 只填写服务根地址（例如 <code>https://api.example.com/v1</code>），系统会自动请求 <code>/models</code> 和 <code>/chat/completions</code>；不要把 <code>/models</code> 直接填入 Base URL。</p></div><div className="grid gap-2 md:grid-cols-2"><input value={aiChannelForm.name} onChange={e => setAiChannelForm({ ...aiChannelForm, name: e.target.value })} placeholder="渠道名称，如：生产 AI 主链路" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><select value={aiChannelForm.protocol} onChange={e => setAiChannelForm({ ...aiChannelForm, protocol: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="OPENAI_COMPATIBLE">OpenAI Compatible（OpenAI / DeepSeek / 通义等）</option><option value="ANTHROPIC">Anthropic Messages</option><option value="GEMINI">Google Gemini</option><option value="CUSTOM">Custom API</option></select><input value={aiChannelForm.baseUrl} onChange={e => setAiChannelForm({ ...aiChannelForm, baseUrl: e.target.value })} placeholder="Base URL / API 地址（不含 /models）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono" /><input value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} placeholder="默认模型名称（可留空，保存后自动发现）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /><input type="password" value={aiChannelForm.apiKey} onChange={e => setAiChannelForm({ ...aiChannelForm, apiKey: e.target.value })} placeholder={aiChannelForm.id ? '留空则保留原 API Key' : 'API Key（服务端加密保存）'} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono md:col-span-2" /><div className="grid grid-cols-3 gap-2 md:col-span-2"><label className="text-[11px] text-slate-500">优先级<input type="number" min="0" max="10000" value={aiChannelForm.priority} onChange={e => setAiChannelForm({ ...aiChannelForm, priority: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">权重<input type="number" min="1" max="10000" value={aiChannelForm.weight} onChange={e => setAiChannelForm({ ...aiChannelForm, weight: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label><label className="text-[11px] text-slate-500">超时(ms)<input type="number" min="1000" max="300000" value={aiChannelForm.timeoutMs} onChange={e => setAiChannelForm({ ...aiChannelForm, timeoutMs: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm" /></label></div><label className="inline-flex items-center gap-2 text-xs text-slate-600 md:col-span-2"><input type="checkbox" checked={aiChannelForm.enabled} onChange={e => setAiChannelForm({ ...aiChannelForm, enabled: e.target.checked })} />启用该渠道（未启用渠道不会参与路由）</label><div className="flex gap-2 md:col-span-2"><button onClick={saveAiChannel} className="theme-accent-bg rounded-lg px-4 py-2 text-sm font-semibold">{aiChannelForm.id ? '保存渠道修改' : '新增 AI 渠道'}</button>{!aiChannelForm.id && <button onClick={resetAiChannelForm} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">重置</button>}</div></div></div>
                   {aiChannelForm.id && aiModelOptions.length > 0 && <div className="mb-6 rounded-xl border border-cyan-100 bg-cyan-50/60 p-3"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-cyan-900">已发现模型（点击填入当前渠道）</p><button type="button" disabled={aiModelsLoading} onClick={() => discoverAiModels(aiChannelForm.id)} className="text-[11px] text-cyan-700 hover:underline disabled:opacity-50">{aiModelsLoading ? '刷新中…' : '刷新模型'}</button></div><div className="mt-2 flex flex-wrap gap-1.5">{aiModelOptions.map(model => <button type="button" key={model} onClick={() => setAiChannelForm(previous => ({ ...previous, model }))} className={`rounded-full border px-2.5 py-1 text-[11px] transition ${aiChannelForm.model === model ? 'border-cyan-500 bg-cyan-600 text-white' : 'border-cyan-200 bg-white text-cyan-800 hover:bg-cyan-100'}`}>{model}</button>)}</div></div>}
-                    <div className="mt-3 rounded-lg border border-dashed border-violet-200 bg-violet-50/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-semibold text-violet-800">模型自动发现</p><p className="text-[11px] text-violet-600">保存渠道后从 /models 获取远端模型，避免写死模型名称。</p></div><button type="button" disabled={!aiChannelForm.id || aiModelsLoading} onClick={() => discoverAiModels(aiChannelForm.id)} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{aiModelsLoading ? '发现中…' : '发现模型'}</button></div>{aiModelOptions.length > 0 && <select value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} className="mt-2 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"><option value="">选择默认模型</option>{aiModelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select>}</div>
+                    <div className="mt-3 rounded-lg border border-dashed border-violet-200 bg-violet-50/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-semibold text-violet-800">模型自动发现</p><p className="text-[11px] text-violet-600">保存渠道后从 /models 获取远端模型，避免写死模型名称。</p></div><div className="flex items-center gap-2"><span className={`text-[11px] ${aiDiscoveryState === 'success' ? 'text-emerald-700' : aiDiscoveryState === 'error' ? 'text-rose-700' : 'text-violet-600'}`}>{aiDiscoveryState === 'loading' ? '正在连接模型目录…' : aiDiscoveryState === 'success' ? `已加载 ${aiModelOptions.length} 个模型` : aiDiscoveryState === 'error' ? '发现失败，请检查地址、路径和密钥' : '等待发现'}</span><button type="button" disabled={!aiChannelForm.id || aiModelsLoading} onClick={() => discoverAiModels(aiChannelForm.id)} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{aiModelsLoading ? '发现中…' : '发现模型'}</button></div></div>{aiModelOptions.length > 0 && <select value={aiChannelForm.model} onChange={e => setAiChannelForm({ ...aiChannelForm, model: e.target.value })} className="mt-2 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"><option value="">选择默认模型</option>{aiModelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select>}</div>
                   </section>
                 </div>
               </div>
@@ -856,13 +852,23 @@ const AdminPanel: React.FC = () => {
                   </div>
                 ) : (
                 <>
+                <section className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-3"><div className="rounded-xl border border-cyan-100 bg-cyan-50/70 p-4"><p className="text-xs font-medium text-cyan-700">用户总数</p><p className="mt-1 text-2xl font-semibold text-slate-900">{users.length}</p><p className="mt-1 text-[11px] text-slate-500">当前页已加载用户</p></div><div className="rounded-xl border border-violet-100 bg-violet-50/70 p-4"><p className="text-xs font-medium text-violet-700">已配置群组</p><p className="mt-1 text-2xl font-semibold text-slate-900">{permissionGroups.length}</p><p className="mt-1 text-[11px] text-slate-500">群组权限以继承方式生效</p></div><div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4"><p className="text-xs font-medium text-emerald-700">当前显示</p><p className="mt-1 text-2xl font-semibold text-slate-900">{visiblePermissionUsers.length}</p><p className="mt-1 text-[11px] text-slate-500">可按用户名、工号或角色筛选</p></div></div>
+                  <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"><label className="min-w-[220px] flex-1 text-xs font-medium text-slate-600">搜索用户、工号或角色<input value={permissionUserSearch} onChange={e => setPermissionUserSearch(e.target.value)} placeholder="例如：002 / 生产人员" aria-label="搜索用户、工号或角色" className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label><label className="text-xs font-medium text-slate-600">用户状态<select value={permissionUserStatus} onChange={e => setPermissionUserStatus(e.target.value as typeof permissionUserStatus)} className="mt-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="all">全部</option><option value="active">正常</option><option value="pending">待处理</option></select></label><span className="pb-2 text-xs text-slate-500">权限编辑将在弹窗中完成，保存后立即生效</span></div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visiblePermissionUsers.length === 0 ? <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm text-slate-500">没有匹配的用户，请调整搜索条件。</div> : visiblePermissionUsers.map(user => <article key={user.id} className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><h4 className="truncate text-base font-semibold text-slate-900">{user.username}</h4><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${user.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{user.status === 'active' ? '正常' : '待处理'}</span></div><p className="mt-1 text-xs text-slate-500">工号 #{user.id} · {ROLE_LABELS[user.role] || user.role}</p></div><button type="button" onClick={() => openPermissionEditor(user)} className="shrink-0 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-800">编辑权限</button></div><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-lg bg-cyan-50 px-2.5 py-1.5 text-xs font-medium text-cyan-700">直授 {(user.personalPermissions || []).length}</span><span className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700">最终有效 {(user.permissions || []).length}</span><span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600">群组 {(user.permissionGroupIds || []).length}</span></div><div className="mt-4 border-t border-slate-100 pt-3"><div className="flex flex-wrap gap-1.5">{(user.permissionGroupIds || []).length ? (user.permissionGroupIds || []).map(groupId => <span key={groupId} className="rounded-full border border-violet-100 bg-violet-50 px-2 py-1 text-[10px] text-violet-700">{permissionGroups.find(group => group.id === groupId)?.name || `群组 #${groupId}`}</span>) : <span className="text-xs text-slate-400">未加入权限组</span>}</div><div className="mt-3 flex flex-wrap items-center gap-3 text-xs"><button type="button" onClick={() => openPermissionDetail(user)} className="font-medium text-cyan-700 hover:underline">查看权限来源</button><button type="button" onClick={() => simulateUserPermissions(user)} className="font-medium text-violet-700 hover:underline">模拟权限</button>{!USE_MOCK_DATA && <><button type="button" onClick={() => { setAdminError(''); setCredentialForm({ username: user.username, password: '', role: String(user.role) }); setUserDialog({ mode: 'edit', user }); }} className="font-medium text-orange-600 hover:underline">修改账号</button><button type="button" onClick={() => deleteRemoteUser(user)} className="font-medium text-red-600 hover:underline">删除</button></>}</div></div></article>)}</div>
+                  <AdminPagination page={userPage} totalPages={userTotalPages} onPageChange={setUserPage} label="用户" />
+                </section>
+                {false && <>
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <select value={permissionDomain} onChange={e => setPermissionDomain(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700" aria-label="权限业务域">
                     {Object.entries(PERMISSION_DOMAIN_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                   </select>
                   <input value={permissionSearch} onChange={e => setPermissionSearch(e.target.value)} className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs" placeholder="搜索权限名称或编码" />
                   <label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={authorizedOnly} onChange={e => setAuthorizedOnly(e.target.checked)} className="rounded border-slate-300 text-cyan-700" />只显示已有授权</label>
-                  <span className="ml-auto text-[11px] text-slate-500">当前显示 {visiblePermissionEntries.length} 项权限</span>
+                  <span className="hidden h-5 w-px bg-slate-200 sm:block" aria-hidden="true" />
+                  <input value={permissionUserSearch} onChange={e => setPermissionUserSearch(e.target.value)} className="w-44 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs" placeholder="搜索用户 / 工号 / 角色" aria-label="搜索用户" />
+                  <select value={permissionUserStatus} onChange={e => setPermissionUserStatus(e.target.value as typeof permissionUserStatus)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs" aria-label="用户状态筛选"><option value="all">全部用户</option><option value="active">正常用户</option><option value="pending">待处理用户</option></select>
+                  <span className="ml-auto whitespace-nowrap text-[11px] text-slate-500">用户 {visiblePermissionUsers.length}/{users.length} · 权限 {visiblePermissionEntries.length}</span>
                 </div>
                 <div
                   ref={permissionMatrixRef}
@@ -876,10 +882,11 @@ const AdminPanel: React.FC = () => {
                   className={`select-none overflow-x-auto rounded-lg border border-gray-200 scroll-smooth ${permissionDragging ? 'cursor-grabbing ring-2 ring-cyan-300' : 'cursor-grab'}`}
                   style={{ scrollbarGutter: 'stable', touchAction: 'pan-y' }}
                 >
-                  <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-white px-3 py-2 text-[11px] text-slate-500"><span>勾选框 = 个人直授权限（可编辑）</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-violet-500" />紫点 = 角色/群组继承（只读）</span></div>
+                  <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-white px-3 py-2 text-[11px] text-slate-500"><span className="inline-flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-cyan-500" />勾选：个人直授权限</span><span className="inline-flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-violet-500" />紫点：角色/群组继承</span><span className="text-slate-400">继承权限不能在此撤销，可通过角色或权限组调整</span></div>
                   <table
                     className="divide-y divide-gray-200"
-                    style={{ minWidth: '2200px' }}
+                    aria-label="用户个人权限矩阵"
+                    style={{ minWidth: `${Math.max(980, visiblePermissionEntries.length * 120 + 180)}px` }}
                   >
                      <thead className="bg-gray-50">
                        <tr>
@@ -892,11 +899,12 @@ const AdminPanel: React.FC = () => {
                        </tr>
                      </thead>
                      <tbody className="bg-white divide-y divide-gray-200">
-                       {users.map(u => (
+                       {visiblePermissionUsers.length === 0 ? <tr><td colSpan={visiblePermissionEntries.length + 2} className="px-4 py-12 text-center text-sm text-slate-500">没有匹配的用户，请调整搜索或状态筛选。</td></tr> : visiblePermissionUsers.map(u => (
                          <tr key={u.id} className="hover:bg-gray-50">
                            <td className="px-4 py-4 text-sm font-medium text-gray-900 sticky left-0 bg-white hover:bg-gray-50 z-10 border-r border-gray-100 shadow-sm">
-                             {u.username}
-                             <div className="text-xs text-gray-400 font-normal">{ROLE_LABELS[u.role] || u.role}</div>
+                             <div className="flex items-center gap-2"><span>{u.username}</span><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{u.status === 'active' ? '正常' : '待处理'}</span></div>
+                             <div className="text-xs text-gray-400 font-normal">{ROLE_LABELS[u.role] || u.role} · 工号 #{u.id}</div>
+                             <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-medium"><span className="rounded bg-cyan-50 px-1.5 py-0.5 text-cyan-700">直授 {(u.personalPermissions || []).length}</span><span className="rounded bg-violet-50 px-1.5 py-0.5 text-violet-700">有效 {(u.permissions || []).length}</span>{(u.permissionGroupIds || []).length > 0 && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">群组 {(u.permissionGroupIds || []).length}</span>}</div>
                              <PermissionSourceSummary role={ROLE_LABELS[u.role] || u.role} personalCount={(u.personalPermissions || []).length} effectiveCount={(u.permissions || []).length} groupNames={(u.permissionGroupIds || []).map(groupId => permissionGroups.find(item => item.id === groupId)?.name || `#${groupId}`)} compact />
                              {!USE_MOCK_DATA && tenants.length>0 && <div className="mt-1 flex flex-wrap gap-1">{tenants.map(t=><button key={t.id} onClick={()=>bindTenant(u.id,t.id)} className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-700">绑定 {t.tenantCode}</button>)}</div>}
                            </td>
@@ -918,8 +926,8 @@ const AdminPanel: React.FC = () => {
                            ))}
 
                            <td className="px-4 py-4 text-center text-sm">
-                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                {u.status === 'active' ? '正常' : '禁用'}
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {u.status === 'active' ? '正常' : '待处理'}
                               </span>
                               {permissionDirty.has(u.id) && <button onClick={() => saveUserPermissions(u.id)} className="mt-2 rounded bg-cyan-700 px-3 py-1 text-xs font-semibold text-white hover:bg-cyan-800">保存权限设置</button>}
                               {!USE_MOCK_DATA && <div className="mt-2 flex flex-wrap justify-center gap-2"><button onClick={()=>openPermissionDetail(u)} className="text-xs text-cyan-700">权限详情</button><button onClick={()=>simulateUserPermissions(u)} className="text-xs text-violet-700">模拟权限</button><button onClick={() => deleteRemoteUser(u)} className="text-xs text-red-600">删除</button><button onClick={() => {setAdminError('');setCredentialForm({username:u.username,password:'',role:String(u.role)});setUserDialog({mode:'edit',user:u});}} className="text-xs text-orange-600">修改</button></div>}
@@ -928,8 +936,7 @@ const AdminPanel: React.FC = () => {
                        ))}
                     </tbody>
                   </table>
-                </div>
-                  <AdminPagination page={userPage} totalPages={userTotalPages} onPageChange={setUserPage} label="用户" />
+                </div></>}
                 </>
                 )}
                 {!USE_MOCK_DATA && <div className="mt-8">
@@ -1031,6 +1038,14 @@ const AdminPanel: React.FC = () => {
           </div>
         </div>
       </div>
+      {permissionEditorUser && <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="permission-editor-title">
+        <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <div className="flex items-start justify-between bg-slate-900 px-6 py-5 text-white"><div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">Permission Editor</p><h3 id="permission-editor-title" className="mt-1 text-lg font-semibold">编辑 {permissionEditorUser.username} 的个人权限</h3><p className="mt-1 text-xs text-slate-300">{ROLE_LABELS[permissionEditorUser.role] || permissionEditorUser.role} · 工号 #{permissionEditorUser.id} · 仅修改个人直授，不会改变角色或群组权限</p></div><button type="button" onClick={() => setPermissionEditorUser(null)} className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="关闭权限编辑"><X className="h-5 w-5" /></button></div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-6 py-3"><span className="text-xs font-medium text-slate-600">所属群组：</span>{(permissionEditorUser.permissionGroupIds || []).length ? (permissionEditorUser.permissionGroupIds || []).map(groupId => <span key={groupId} className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-medium text-violet-800">{permissionGroups.find(group => group.id === groupId)?.name || `群组 #${groupId}`}</span>) : <span className="text-xs text-slate-400">未加入权限组</span>}<span className="ml-auto text-[11px] text-slate-500">直授 {permissionEditorDraft.length} · 最终有效 {permissionEditorUser.permissions.length}</span></div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden"><div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-6 py-3"><label className="text-xs font-medium text-slate-600">权限业务域<select value={permissionEditorDomain} onChange={e => setPermissionEditorDomain(e.target.value)} className="ml-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"><option value="all">全部业务域</option>{Object.entries(PERMISSION_DOMAIN_LABELS).filter(([key]) => key !== 'all').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><span className="text-[11px] text-slate-400">青色勾选为个人直授；紫色标签表示来自角色或群组</span></div><div className="flex-1 overflow-y-auto p-6"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{visibleEditorPermissionEntries.map(([key, label]) => { const permission = key as Permission; const direct = permissionEditorDraft.includes(permission); const inherited = permissionEditorUser.permissions.includes(permission) && !direct; return <label key={key} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${direct ? 'border-cyan-300 bg-cyan-50/70' : inherited ? 'border-violet-200 bg-violet-50/50' : 'border-slate-200 bg-white hover:border-cyan-200'}`}><input type="checkbox" checked={direct} onChange={() => setPermissionEditorDraft(previous => direct ? previous.filter(item => item !== permission) : [...previous, permission])} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-500" /><span className="min-w-0"><span className="block text-sm font-medium text-slate-800">{label}</span><span className="mt-1 block text-[10px] text-slate-500">{direct ? '个人直授' : inherited ? '角色/群组继承（只读来源）' : '未授权'}</span></span></label>; })}</div></div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4"><span className="text-xs text-slate-500">保存后权限将在用户下一次请求时生效，现有业务数据不会改变。</span><div className="flex gap-2"><button type="button" onClick={() => setPermissionEditorUser(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">取消</button><button type="button" disabled={permissionEditorSaving} onClick={savePermissionEditor} className="rounded-lg bg-cyan-700 px-5 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300">{permissionEditorSaving ? '保存中…' : '保存个人权限'}</button></div></div>
+        </div>
+      </div>}
       {permissionDiff && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="permission-diff-title">
         <div className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
           <div className="flex items-start justify-between bg-cyan-800 px-6 py-5 text-white"><div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Permission Diff</p><h3 id="permission-diff-title" className="mt-1 text-lg font-semibold">权限变更预览 · {permissionDiff.username}</h3></div><button onClick={() => setPermissionDiff(null)} className="rounded-md p-1 text-cyan-100 hover:bg-white/10" aria-label="关闭"><X className="h-5 w-5"/></button></div>

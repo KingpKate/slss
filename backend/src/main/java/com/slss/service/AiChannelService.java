@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.*;
 import java.net.URI;
 import java.net.InetAddress;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 @Service
@@ -26,12 +27,15 @@ public class AiChannelService {
   private final AiChannelRepository channels;
   private final ObjectMapper json;
   private final RestClient http;
+  private final RestClient.Builder httpBuilder;
+  private final AuditService audit;
   private final byte[] cryptoKey;
   private final SecureRandom random = new SecureRandom();
+  private final Map<String, Deque<Long>> rateWindows = new java.util.concurrent.ConcurrentHashMap<>();
 
-  public AiChannelService(AiChannelRepository channels, ObjectMapper json, RestClient.Builder builder,
+  public AiChannelService(AiChannelRepository channels, ObjectMapper json, RestClient.Builder builder, AuditService audit,
       @org.springframework.beans.factory.annotation.Value("${slss.security.jwt-secret}") String secret) {
-    this.channels = channels; this.json = json;
+    this.channels = channels; this.json = json; this.httpBuilder = builder; this.audit = audit;
     var requestFactory = new SimpleClientHttpRequestFactory();
     requestFactory.setConnectTimeout(15_000); requestFactory.setReadTimeout(120_000);
     this.http = builder.requestFactory(requestFactory).build();
@@ -40,15 +44,16 @@ public class AiChannelService {
   }
 
   public List<Map<String, Object>> list() { return channels.findAllByOrderByPriorityAscIdAsc().stream().map(this::view).toList(); }
-  public Map<String, Object> create(Map<String, Object> body) { return view(channels.save(fill(new AiChannel(), body, true))); }
+  public Map<String, Object> create(Map<String, Object> body) { var saved=channels.save(fill(new AiChannel(), body, true)); audit("AI_CHANNEL_CREATE",saved.getId(),"创建 AI 渠道"); return view(saved); }
   public Map<String, Object> update(long id, Map<String, Object> body) {
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     if (body.get("version") != null && Long.parseLong(String.valueOf(body.get("version"))) != channel.getVersion()) throw new IllegalStateException("AI 渠道已被其他管理员修改，请刷新后重试");
-    return view(channels.save(fill(channel, body, false)));
+    var saved=channels.save(fill(channel, body, false)); audit("AI_CHANNEL_UPDATE",saved.getId(),"更新 AI 渠道"); return view(saved);
   }
-  public void delete(long id) { channels.deleteById(id); }
+  public void delete(long id) { channels.deleteById(id); audit("AI_CHANNEL_DELETE",id,"删除 AI 渠道"); }
 
   public Map<String, Object> test(long id) {
+    rateLimit("test:" + id);
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
       // Model discovery is part of the connectivity test.  A newly created
@@ -63,9 +68,11 @@ public class AiChannelService {
       channel = channels.findById(id).orElse(channel);
       var response = request(channel, "Reply with OK only.", "You are a connectivity test bot.", true);
       channel.setLastStatus("UP"); channel.setLastError(null); channel.setLastTestAt(Instant.now()); channels.save(channel);
+      audit("AI_CHANNEL_TEST",id,"AI 渠道连接成功");
       return Map.of("status", "UP", "message", response == null ? "连接成功" : "连接成功", "testedAt", channel.getLastTestAt());
     } catch (Exception ex) {
       channel.setLastStatus("DOWN"); channel.setLastError(trim(ex.getMessage())); channel.setLastTestAt(Instant.now()); channels.save(channel);
+      audit("AI_CHANNEL_TEST",id,"AI 渠道连接失败: "+trim(ex.getMessage()));
       throw new IllegalStateException("AI 渠道连接失败：" + trim(ex.getMessage()), ex);
     }
   }
@@ -110,6 +117,7 @@ public class AiChannelService {
   }
 
   public Map<String, Object> models(long id) {
+    rateLimit("models:" + id);
     var channel = channels.findById(id).orElseThrow(() -> new NoSuchElementException("AI 渠道不存在"));
     try {
       if ("ANTHROPIC".equalsIgnoreCase(channel.getProtocol())) {
@@ -136,14 +144,14 @@ public class AiChannelService {
     if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
     JsonNode data;
     if ("GEMINI".equalsIgnoreCase(channel.getProtocol())) {
-      data = http.get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
+      data = client(channel).get().uri(base + "/v1beta/models?key=" + key).headers(h -> headers(channel, h)).retrieve().body(JsonNode.class);
     } else {
       // OpenAI-compatible vendors differ on whether the base URL already
       // includes /v1. Probe the explicit endpoint first, then the conventional
       // /v1/models path without requiring users to guess the suffix.
       Exception last = null; data = null;
       for (String path : modelPaths(base)) {
-        try { data = http.get().uri(path).headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class); if (data != null) break; }
+        try { data = client(channel).get().uri(path).headers(h -> { headers(channel, h); h.setBearerAuth(key); }).retrieve().body(JsonNode.class); if (data != null) break; }
         catch (Exception ex) { last = ex; }
       }
       if (data == null && last != null) throw new IllegalStateException("模型目录请求失败：" + trim(last.getMessage()), last);
@@ -176,9 +184,15 @@ public class AiChannelService {
     String key = decrypt(c.getEncryptedApiKey()); if (key.isBlank()) throw new IllegalStateException("未配置 API 密钥");
     validateEndpoint(c.getBaseUrl());
     String base = c.getBaseUrl().replaceAll("/+$", "");
-    if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))), "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); var response = http.post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "GEMINI"); }
-    if ("ANTHROPIC".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("system", systemPrompt, "model", c.getModel(), "max_tokens", 1024, "messages", List.of(Map.of("role", "user", "content", prompt))); var response = http.post().uri(base + "/v1/messages").headers(h -> { headers(c, h); h.set("x-api-key", key); h.set("anthropic-version", "2023-06-01"); }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "ANTHROPIC"); }
-    var body = Map.of("model", c.getModel(), "messages", List.of(Map.of("role", "system", "content", systemPrompt), Map.of("role", "user", "content", prompt)), "max_tokens", 1024); var response = http.post().uri(base.endsWith("/chat/completions") ? base : base + "/chat/completions").headers(h -> headers(c, h)).header("Authorization", "Bearer " + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "OPENAI");
+    if ("GEMINI".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("systemInstruction", Map.of("parts", List.of(Map.of("text", systemPrompt))), "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt))))); var response = client(c).post().uri(base + "/v1beta/models/" + c.getModel() + ":generateContent?key=" + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "GEMINI"); }
+    if ("ANTHROPIC".equalsIgnoreCase(c.getProtocol())) { var body = Map.of("system", systemPrompt, "model", c.getModel(), "max_tokens", 1024, "messages", List.of(Map.of("role", "user", "content", prompt))); var response = client(c).post().uri(base + "/v1/messages").headers(h -> { headers(c, h); h.set("x-api-key", key); h.set("anthropic-version", "2023-06-01"); }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "ANTHROPIC"); }
+    var body = Map.of("model", c.getModel(), "messages", List.of(Map.of("role", "system", "content", systemPrompt), Map.of("role", "user", "content", prompt)), "max_tokens", 1024); var response = client(c).post().uri(base.endsWith("/chat/completions") ? base : base + "/chat/completions").headers(h -> headers(c, h)).header("Authorization", "Bearer " + key).contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(String.class); return extractContent(response, "OPENAI");
+  }
+  private RestClient client(AiChannel channel) {
+    var factory = new SimpleClientHttpRequestFactory();
+    int timeout = Math.max(1000, Math.min(channel.getTimeoutMs(), 300000));
+    factory.setConnectTimeout(timeout); factory.setReadTimeout(timeout);
+    return httpBuilder.requestFactory(factory).build();
   }
   private String extractContent(String raw, String protocol) {
     if (raw == null || raw.isBlank()) return "";
@@ -199,6 +213,11 @@ public class AiChannelService {
   private static int integer(Object v, int fallback, int min, int max) { try { int n = v == null ? fallback : Integer.parseInt(String.valueOf(v)); if (n < min || n > max) throw new IllegalArgumentException("数值超出范围"); return n; } catch (NumberFormatException e) { throw new IllegalArgumentException("数值格式不正确"); } }
   private static String mask(String value) { return value == null || value.isBlank() ? "" : "••••••••"; }
   private static String trim(String value) { return value == null || value.isBlank() ? "未知错误" : value.length() > 500 ? value.substring(0, 500) : value; }
+  private void audit(String action, Long id, String details) { var actor=SecurityContextHolder.getContext().getAuthentication(); audit.record(actor==null?"system":actor.getName(),action,"AI_CHANNEL",String.valueOf(id),details,null,true); }
+  private void rateLimit(String key) {
+    long now=System.currentTimeMillis(); var window=rateWindows.computeIfAbsent(key,k->new ArrayDeque<>());
+    synchronized(window) { while(!window.isEmpty() && now-window.peekFirst()>60_000) window.removeFirst(); if(window.size()>=30) throw new IllegalStateException("AI 渠道请求过于频繁，请稍后重试"); window.addLast(now); }
+  }
 
   private static List<String> modelPaths(String base) {
     var paths = new ArrayList<String>();

@@ -9,6 +9,9 @@ import java.util.List;
 
 /** Indexed lookup used by the scan write path; never load every scan table. */
 public interface ScanTableValueRepository extends JpaRepository<ScanTableValue, Long> {
+  @Query("select v from ScanTableValue v join fetch v.row r join fetch r.scanTable t " +
+      "where lower(v.fieldValue) = lower(:value)")
+  List<ScanTableValue> findByValue(@Param("value") String value);
   @Query("select v from ScanTableValue v join v.row r join r.scanTable t " +
       "where v.fieldValue = :value and t.tenant.id = :tenantId")
   List<ScanTableValue> findByValueAndTenant(@Param("value") String value, @Param("tenantId") Long tenantId);

@@ -1,4 +1,4 @@
-const base = process.env.SLSS_E2E_URL || 'http://127.0.0.1:18080/slss/api/v1';
+const base = process.env.SLSS_E2E_URL || 'http://127.0.0.1:8080/slss/api/v1';
 const username = process.env.SLSS_E2E_USER || 'e2e_admin';
 const password = process.env.SLSS_E2E_PASSWORD || 'SlssE2E!2026';
 

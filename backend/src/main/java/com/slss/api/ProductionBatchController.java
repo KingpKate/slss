@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 @RestController
 @RequestMapping("/api/v1/production/batches")
@@ -18,6 +19,7 @@ public class ProductionBatchController {
   public record BatchResponse(Long id,String batchName,String status){}
   public record ComponentDraft(String type,String model,String serialNo){}
   private BatchResponse response(ProductionBatch b){return new BatchResponse(b.getId(),b.getBatchName(),b.getStatus());}
+  private boolean hasAuthority(String code){var auth=SecurityContextHolder.getContext().getAuthentication();return auth!=null&&auth.getAuthorities().stream().anyMatch(a->code.equals(a.getAuthority()));}
   @PostMapping
   @PreAuthorize("hasAnyAuthority('PERM_MANAGE_PRODUCTION','PERM_CREATE_SCAN_TABLE')")
   public BatchResponse create(@RequestBody CreateRequest r){return response(service.create(r.batchName()));}
@@ -31,8 +33,7 @@ public class ProductionBatchController {
     var batch=batches.findById(id).orElseThrow(()->new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"批次不存在"));
     tenantScope.requireAccess(batch.getTenant());
     var asset=assets.findByBatch_IdAndMachineSnIgnoreCase(id,machineSn).orElseThrow();
-    var auth=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-    for(var row:rows){if(row.serialNo()==null||row.serialNo().isBlank())continue;var serial=row.serialNo().trim();var duplicate=components.findBySerialNo(serial);if(duplicate.isPresent()&&!duplicate.get().getAsset().getId().equals(asset.getId())){var allowed=auth.getAuthorities().stream().anyMatch(a->a.getAuthority().equals("PERM_FORCE_DUPLICATE_SN"));if(!allowed)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"配件 SN "+serial+" 已存在于设备 "+duplicate.get().getAsset().getMachineSn()+" 的 "+duplicate.get().getComponentType()+"，不能重复使用");components.delete(duplicate.get());}var c=components.findByAssetIdAndComponentType(asset.getId(),row.type()).orElseGet(AssetComponent::new);c.setAsset(asset);c.setComponentType(row.type());c.setModel(row.model());c.setSerialNo(serial);components.save(c);}
+    for(var row:rows){if(row.serialNo()==null||row.serialNo().isBlank())continue;var serial=row.serialNo().trim();var duplicate=components.findBySerialNoIgnoreCase(serial);if(duplicate.isPresent()&&!duplicate.get().getAsset().getId().equals(asset.getId())&&!hasAuthority("PERM_FORCE_DUPLICATE_SN"))throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"配件 SN "+serial+" 已存在于设备 "+duplicate.get().getAsset().getMachineSn()+" 的 "+duplicate.get().getComponentType()+"，不能重复使用；需要勾选“强制重复使用 SN”权限");var c=components.findByAssetIdAndComponentType(asset.getId(),row.type()).orElseGet(AssetComponent::new);c.setAsset(asset);c.setComponentType(row.type());c.setModel(row.model());c.setSerialNo(serial);components.save(c);}
   }
   @PostMapping("/{id}/commit")
   @PreAuthorize("hasAnyAuthority('PERM_MANAGE_PRODUCTION','PERM_CREATE_SCAN_TABLE')")
@@ -78,7 +79,7 @@ public class ProductionBatchController {
   // permission is implied by this endpoint.
   @PreAuthorize("hasAnyAuthority('PERM_VIEW_PRODUCTION','PERM_MANAGE_PRODUCTION','PERM_CREATE_SCAN_TABLE','PERM_MANAGE_PRODUCTION_REPAIR','PERM_VIEW_DASHBOARD','PERM_VIEW_ORDERS')")
   @org.springframework.transaction.annotation.Transactional(readOnly = true)
-  public Map<String,Object> statistics(@RequestParam java.time.LocalDate from,@RequestParam java.time.LocalDate to){
+  public Map<String,Object> statistics(@RequestParam java.time.LocalDate from,@RequestParam java.time.LocalDate to,@RequestParam(required=false) String serialNo){
     if(to.isBefore(from))throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,"结束日期不能早于开始日期");
     var zone=java.time.ZoneId.systemDefault();var start=from.atStartOfDay(zone).toInstant();var end=to.plusDays(1).atStartOfDay(zone).toInstant();
     var completed=new java.util.ArrayList<Map<String,Object>>();var unfinished=new java.util.ArrayList<Map<String,Object>>();
@@ -101,16 +102,49 @@ public class ProductionBatchController {
         if(!tableInRange&&!completionInRange)continue;
         var machineSn=scanRow.getValues().stream().filter(v->"machine_sn".equalsIgnoreCase(v.getFieldKey())||"整机sn".equalsIgnoreCase(v.getFieldKey())).map(ScanTableValue::getFieldValue).filter(java.util.Objects::nonNull).filter(v->!v.isBlank()).findFirst().orElse(scanRow.getMachineSn());
         if(machineSn==null||machineSn.isBlank())continue;
+        if(serialNo!=null&&!serialNo.trim().isBlank()) {
+          var query=serialNo.trim();
+          var matched=machineSn.equalsIgnoreCase(query)||scanRow.getValues().stream().map(ScanTableValue::getFieldValue).filter(java.util.Objects::nonNull).anyMatch(v->query.equalsIgnoreCase(v.trim()));
+          if(!matched) continue;
+        }
         var detail=new java.util.LinkedHashMap<String,Object>();detail.put("scanTableId",table.getId());detail.put("customerName",table.getCustomerName());detail.put("machineSn",machineSn);detail.put("model",table.getModel());detail.put("batchName",table.getCustomerName()+" / "+table.getModel());detail.put("createdAt",table.getCreatedAt());
         if("COMPLETED".equalsIgnoreCase(scanRow.getStatus()))completed.add(detail);else unfinished.add(detail);
       }
     }
     // Keep legacy production-batch assets visible when they were imported
     // before MES scan tables existed.
-    if(completed.isEmpty()&&unfinished.isEmpty()) for(var asset:assets.findAll()){var batch=asset.getBatch();if(batch==null||batch.getCreatedAt()==null||batch.getCreatedAt().isBefore(start)||!batch.getCreatedAt().isBefore(end))continue;var row=new java.util.LinkedHashMap<String,Object>();row.put("machineSn",asset.getMachineSn());row.put("model",asset.getModel()==null?"":asset.getModel());row.put("batchName",batch.getBatchName());row.put("createdAt",batch.getCreatedAt());if("COMMITTED".equalsIgnoreCase(batch.getStatus()))completed.add(row);else unfinished.add(row);}
-    var repairEvents=lifecycle.findByEventTypeAndOccurredAtBetween("REPAIR_SWAP",start,end);
+    if((completed.isEmpty()&&unfinished.isEmpty()) || (serialNo!=null&&!serialNo.trim().isBlank())) for(var asset:assets.findAll()){
+      var batch=asset.getBatch();
+      var tenant=asset.getTenant()!=null?asset.getTenant():batch==null?null:batch.getTenant();
+      if(!tenantScope.canAccess(tenant)||batch==null||batch.getCreatedAt()==null||batch.getCreatedAt().isBefore(start)||!batch.getCreatedAt().isBefore(end))continue;
+      if(serialNo!=null&&!serialNo.trim().isBlank()) {
+        var query=serialNo.trim();
+        var matched=query.equalsIgnoreCase(asset.getMachineSn())||components.findByAssetIdOrderById(asset.getId()).stream().map(AssetComponent::getSerialNo).filter(java.util.Objects::nonNull).anyMatch(v->query.equalsIgnoreCase(v.trim()));
+        if(!matched) continue;
+      }
+      var row=new java.util.LinkedHashMap<String,Object>();row.put("machineSn",asset.getMachineSn());row.put("model",asset.getModel()==null?"":asset.getModel());row.put("batchName",batch.getBatchName());row.put("createdAt",batch.getCreatedAt());if("COMMITTED".equalsIgnoreCase(batch.getStatus()))completed.add(row);else unfinished.add(row);
+    }
+    var repairEvents=lifecycle.findByEventTypeAndOccurredAtBetween("REPAIR_SWAP",start,end).stream()
+      .filter(e->tenantScope.canAccess(e.getTenant())).toList();
+    var repairQuery=serialNo==null?"":serialNo.trim();
+    // A repair search accepts either the machine SN or any component SN. First
+    // resolve matching assets from the repair event itself, then return every
+    // repair event for those assets so a component search shows the complete
+    // machine repair history (including earlier and later replacements).
+    var matchedRepairAssets=new java.util.HashSet<Long>();
+    if(!repairQuery.isBlank()) for(var event:repairEvents){
+      if(java.util.stream.Stream.of(event.getMachineSn(),event.getOldSn(),event.getNewSn())
+        .filter(java.util.Objects::nonNull).anyMatch(value->repairQuery.equalsIgnoreCase(value.trim())))
+        matchedRepairAssets.add(event.getAssetId());
+    }
     var repairMap=new java.util.LinkedHashMap<Long,Map<String,Object>>();
-    for(var event:repairEvents){var item=repairMap.computeIfAbsent(event.getAssetId(),id->{var value=new java.util.LinkedHashMap<String,Object>();value.put("machineSn",event.getMachineSn());value.put("model",event.getAssetModel());value.put("events",new java.util.ArrayList<Map<String,Object>>());return value;});var eventRow=new java.util.LinkedHashMap<String,Object>();eventRow.put("partName",java.util.Optional.ofNullable(event.getPartName()).orElse("配件"));eventRow.put("oldSn",java.util.Optional.ofNullable(event.getOldSn()).orElse(""));eventRow.put("newSn",java.util.Optional.ofNullable(event.getNewSn()).orElse(""));eventRow.put("occurredAt",event.getOccurredAt());eventRow.put("details",java.util.Optional.ofNullable(event.getDetails()).orElse(""));((java.util.List<Map<String,Object>>)item.get("events")).add(eventRow);}
+    for(var event:repairEvents){
+      if(!repairQuery.isBlank()&&!matchedRepairAssets.contains(event.getAssetId())) continue;
+      var item=repairMap.computeIfAbsent(event.getAssetId(),id->{var value=new java.util.LinkedHashMap<String,Object>();value.put("machineSn",event.getMachineSn());value.put("model",event.getAssetModel());value.put("events",new java.util.ArrayList<Map<String,Object>>());return value;});
+      var eventRow=new java.util.LinkedHashMap<String,Object>();eventRow.put("partName",java.util.Optional.ofNullable(event.getPartName()).orElse("配件"));eventRow.put("oldSn",java.util.Optional.ofNullable(event.getOldSn()).orElse(""));eventRow.put("newSn",java.util.Optional.ofNullable(event.getNewSn()).orElse(""));eventRow.put("faultDescription",java.util.Optional.ofNullable(event.getFaultDescription()).orElse(""));eventRow.put("occurredAt",event.getOccurredAt());eventRow.put("details",java.util.Optional.ofNullable(event.getDetails()).orElse(""));
+      var details=java.util.Optional.ofNullable(event.getDetails()).orElse(""); var operator=details.replaceFirst(".*(?:维修操作员|操作员)[:：]\\s*([^，,；;\\s]+).*","$1"); if(!operator.equals(details)) eventRow.put("operatorNo",operator);
+      ((java.util.List<Map<String,Object>>)item.get("events")).add(eventRow);
+    }
     // Repairs made on scan-table-only devices predate lifecycle records. A
     // value scanned after the row was completed is an authoritative repair
     // signal; include it in statistics even when no legacy Asset existed.
@@ -121,10 +155,10 @@ public class ProductionBatchController {
       var machine=java.util.Optional.ofNullable(row.getMachineSn()).filter(x->!x.isBlank()).orElseGet(()->row.getValues().stream().filter(v->"machine_sn".equalsIgnoreCase(v.getFieldKey())).map(ScanTableValue::getFieldValue).filter(x->x!=null&&!x.isBlank()).findFirst().orElse(""));
       if(machine.isBlank()) continue;
       var known=repairMap.values().stream().anyMatch(x->machine.equalsIgnoreCase(String.valueOf(x.get("machineSn"))));
-      if(known) continue;
+      if(known || (!repairQuery.isBlank() && !machine.equalsIgnoreCase(repairQuery) && changed.stream().noneMatch(v->repairQuery.equalsIgnoreCase(java.util.Optional.ofNullable(v.getFieldValue()).orElse(""))))) continue;
       var item=new java.util.LinkedHashMap<String,Object>();item.put("machineSn",machine);item.put("model",table.getModel());var events=new java.util.ArrayList<Map<String,Object>>();
       for(var value:changed){var e=new java.util.LinkedHashMap<String,Object>();e.put("partName",value.getFieldKey());e.put("oldSn","");e.put("newSn",value.getFieldValue());e.put("occurredAt",value.getScannedAt());e.put("details","扫码表完工后维修更新，操作员："+java.util.Optional.ofNullable(value.getOperatorNo()).orElse("未知"));events.add(e);}item.put("events",events);repairMap.put(-((long)table.getId()*100000L+row.getRowNumber()),item);
     }
-    var result=new java.util.LinkedHashMap<String,Object>();result.put("from",from);result.put("to",to);result.put("completedCount",completed.size());result.put("unfinishedCount",unfinished.size());result.put("repairCount",repairMap.size());result.put("completedDevices",completed);result.put("unfinishedDevices",unfinished);result.put("repairDevices",repairMap.values());return result;
+    var result=new java.util.LinkedHashMap<String,Object>();result.put("from",from);result.put("to",to);result.put("productionQuery",serialNo==null?"":serialNo.trim());result.put("repairQuery",repairQuery);result.put("completedCount",completed.size());result.put("unfinishedCount",unfinished.size());result.put("repairCount",repairMap.size());result.put("completedDevices",completed);result.put("unfinishedDevices",unfinished);result.put("repairDevices",repairMap.values());return result;
   }
 }

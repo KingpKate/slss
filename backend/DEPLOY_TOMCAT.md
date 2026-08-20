@@ -21,8 +21,8 @@ preserved when `slss.war` is upgraded.
 
 The WAR also contains the production frontend. Deploy it as `slss.war` and open
 `http://SERVER_IP:8080/slss/`. Static SPA resources and login are public; business
-APIs remain protected by JWT/RBAC. Tomcat listens on all configured connector
-addresses by default. For Docker publish explicitly with `-p 0.0.0.0:8080:8080`.
+APIs remain protected by JWT/RBAC. This project is validated against a host
+Tomcat instance; the retired Docker/18080 entrypoint is not supported.
 
 ## jdbc.properties
 

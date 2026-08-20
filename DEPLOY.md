@@ -49,6 +49,9 @@ security.corsAllowedOrigins=https://your-slss-domain.example
 
 ## 3. 发布
 
+本项目唯一支持的运行入口为宿主机 Tomcat `8080`。旧的 Docker/E2E `18080`
+入口已废弃、停止并不再维护；不要将 WAR 发布到 18080，也不要将其作为验收地址。
+
 ```bash
 cp backend/target/slss.war "$CATALINA_BASE/webapps/slss.war"
 systemctl restart tomcat
@@ -64,7 +67,25 @@ HTTPS，并限制管理端口访问范围。
 或修改已执行的迁移脚本。迁移失败时应用不应继续提供业务服务，应先修复数据库
 或配置后再重启。
 
-## 5. AI 网关
+## 5. 备份恢复演练
+
+上线前至少执行一次逻辑备份和临时库恢复验证：
+
+```bash
+mysqldump --single-transaction --routines --events -u slss -p slss > slss-backup.sql
+mysql -u slss_restore -p slss_restore < slss-backup.sql
+mysql -u slss_restore -p slss_restore -e "SELECT COUNT(*) FROM flyway_schema_history;"
+```
+
+恢复库必须使用独立账号和库名，不得直接覆盖生产库。确认 Flyway 版本、关键用户、租户、扫码表和工单数量后，才允许执行切换。
+
+性能基线脚本只检查本机健康接口，不写入业务数据：
+
+```bash
+node scripts/performance-baseline.mjs
+```
+
+## 6. AI 网关
 
 AI 配置在系统管理页面保存到后端 `system_settings` 表。浏览器只调用
 `/api/v1/ai/analyze` 和 `/api/v1/ai/test`，不会获取供应商 API Key。生产环境不要

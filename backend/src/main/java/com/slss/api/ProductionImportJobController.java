@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.security.Principal;
 import java.time.Instant;
+import org.springframework.data.domain.*;
 
 @RestController
 @RequestMapping("/api/v1/production/import-jobs")
@@ -29,6 +30,7 @@ public class ProductionImportJobController {
  @PostMapping("/{id}/cancel") public JobResponse cancel(@PathVariable Long id){return response(service.cancel(id));}
  @PostMapping("/{id}/retry") public JobResponse retry(@PathVariable Long id,Principal principal){var job=service.retry(id,principal.getName());queue.dispatch(job.getId());return response(job);}
  @GetMapping public Object list(){return jobs.findAll().stream().map(this::response).toList();}
+ @GetMapping("/page") public PageResponse<JobResponse> page(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size){var p=PageRequest.of(Math.max(0,page),Math.min(Math.max(1,size),200),Sort.by(Sort.Direction.DESC,"createdAt"));return PageResponse.of(jobs.findAll(p).map(this::response));}
  @GetMapping("/{id}") public JobResponse get(@PathVariable Long id){return response(jobs.findById(id).orElseThrow());}
  @GetMapping("/{id}/failures") public Object failures(@PathVariable Long id){return failures.findByJobIdOrderByRowNumberAsc(id);}
 }

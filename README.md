@@ -41,7 +41,7 @@ SLSS MES 是一个前后端分离的制造执行系统（MES），同时覆盖�
 - MySQL 8.0.30+（本机验收为 8.0.46）
 - Redis 7.0+（本机验收为 7.0.15；仅 RabbitMQ 执行器需要）
 - Tomcat 10.1.x（本机验收为 10.1.55）
-- Spring Boot 3.3.2、Flyway 迁移版本 V1–V45
+- Spring Boot 3.3.2、Flyway 迁移版本 V1–V65（以目标数据库启动日志为准）
 
 Tomcat 10.1 必须使用 Jakarta Servlet 6；不要使用 Tomcat 9 或更早版本。
 MySQL、Redis、Tomcat 应部署在受控内网，生产环境通过 HTTPS 反向代理对外提供服务。
@@ -73,7 +73,7 @@ redis-cli ping                         # 期望 PONG
 Redis 默认只监听本机。生产环境如需多实例访问，应显式配置监听地址、密码、ACL、
 防火墙和持久化策略，禁止直接暴露未鉴权的 6379 端口。
 
-RabbitMQ、Redis 仅在启用生产导入消息队列执行器时需要；本地开发可使用 `import.executor=local`。运行集成测试还需要 Docker 与可用的 Docker API。
+RabbitMQ、Redis 仅在启用生产导入消息队列执行器时需要；本地开发可使用 `import.executor=local`。生产验收使用本机 MySQL；Testcontainers 集成测试属于可选门禁，未安装 Docker 时会明确跳过，不影响本机数据库验收。
 
 ## 3. 从零获取源码
 
@@ -179,7 +179,7 @@ npm ci
 node node_modules/vite/bin/vite.js
 ```
 
-默认地址为 `http://localhost:5173`。前端通过 `VITE_API_BASE_URL` 指向后端 API；不设置时会根据当前部署上下文访问 `/slss/api/v1`。例如：
+默认开发地址为 `http://localhost:3000`。前端通过 `VITE_API_BASE_URL` 指向后端 API；不设置时会根据当前部署上下文访问 `/slss/api/v1`。例如：
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8080/slss/api/v1 \
@@ -299,3 +299,80 @@ curl -fsS http://127.0.0.1:8080/slss/actuator/health
 - 生产发布遵循“构建 → 测试 → 备份数据库 → 替换 WAR → 重启 → 健康检查 → 浏览器验收”的顺序。
 
 更多 Tomcat 外置配置示例请阅读 [`backend/DEPLOY_TOMCAT.md`](backend/DEPLOY_TOMCAT.md)，系统重构记录可参考仓库中的 `REFACTOR_PLAN.md`、`OPTIMIZATION.md` 与 `docs/`。
+
+## 12. 当前生产发布包与数据库导出（2026-08-20）
+
+本机最后一次构建已通过前端类型检查、Vite 生产构建和 Maven WAR 打包。当前可发布
+WAR 的绝对路径为：
+
+```text
+/opt/backup/backend/target/slss.war
+```
+
+部署到本机 Tomcat 10 的标准命令如下（生产机请将路径替换为目标机的
+`CATALINA_BASE`）：
+
+```bash
+sudo systemctl stop tomcat10
+sudo rm -rf /var/lib/tomcat10/webapps/slss
+sudo install -o tomcat -g tomcat -m 640 \
+  /opt/backup/backend/target/slss.war \
+  /var/lib/tomcat10/webapps/slss.war
+sudo systemctl start tomcat10
+curl -fsS http://127.0.0.1:8080/slss/actuator/health
+```
+
+期望返回 `{"status":"UP"}`。生产环境应在反向代理后使用 HTTPS，不能将 Tomcat
+8080 管理端口直接暴露到公网；旧的 18080 运行入口已经废弃，不属于支持范围。
+
+### 当前数据库导出文件
+
+已从本机 MySQL 8.0.46 的 `slss_local` 数据库导出完整逻辑备份（表结构、业务数据、
+触发器、事件和存储过程），文件路径为：
+
+```text
+/opt/backup/deploy/sql/slss_local_20260820.sql
+```
+
+导出使用 `--single-transaction --routines --events --triggers --no-tablespaces`，
+不会要求生产账号拥有 PROCESS 权限。该文件包含当前环境业务数据，属于敏感生产资产，
+不得提交到公开仓库或通过不受控渠道传输；传输和存储时应使用加密磁盘或加密压缩包。
+
+在生产环境导入前，先创建独立数据库和账号，并确认目标数据库为空或已经完成备份：
+
+```sql
+CREATE DATABASE slss_local CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'slss_user'@'127.0.0.1' IDENTIFIED BY '替换为生产强密码';
+GRANT ALL PRIVILEGES ON slss_local.* TO 'slss_user'@'127.0.0.1';
+FLUSH PRIVILEGES;
+```
+
+导入命令：
+
+```bash
+mysql --default-character-set=utf8mb4 \
+  -h127.0.0.1 -u slss_user -p slss_local \
+  < /opt/backup/deploy/sql/slss_local_20260820.sql
+```
+
+导入后必须校验：
+
+```bash
+mysql -h127.0.0.1 -u slss_user -p slss_local \
+  -e "SELECT VERSION(); SELECT COUNT(*) FROM flyway_schema_history;"
+```
+
+应用启动时 Flyway 会继续校验并执行后续迁移；不要删除或修改已经执行过的
+`V*.sql`。当前本机数据库 Flyway 版本为 V65，生产导入后如果代码包含更高版本迁移，
+应以应用启动日志中的最终版本为准。
+
+### 发布前后验收顺序
+
+1. 备份生产数据库，并在临时数据库执行一次恢复演练。
+2. 校验 Tomcat 外置 `jdbc.properties`、`security.properties` 和 `queue.properties`，确认密钥不在 WAR、Git 或前端构建产物中。
+3. 替换 WAR，清理旧的展开目录，重启 Tomcat。
+4. 检查 `/slss/actuator/health`、Tomcat 日志、Flyway 校验结果和 MySQL 连接池。
+5. 管理员登录，验证用户权限、租户、扫码模板、流程单、生产查询、维修和导出。
+6. 使用普通账号验证权限边界、数据隔离和多人扫码同步。
+7. 验证浏览器强制刷新后静态资源来自本次 WAR，避免缓存旧 JS。
+8. 验收通过后再将反向代理流量切换到新实例，并保留旧 WAR 作为可回滚副本。

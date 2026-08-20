@@ -25,6 +25,11 @@ dist-ssr
 
 # Build artifacts & caches (do not commit)
 .m2-cache/
+.venv-perf/
+.planning/
+task_plan.md
+progress.md
+findings.md
 release/
 backend/target/
 *.tar.gz
@@ -33,4 +38,8 @@ backend/src/main/resources/static/
 backend/src/main/resources/static/assets/
 deploy/e2e/*.properties
 !deploy/e2e/*.properties.example
+deploy/local-tomcat/*.properties
+!deploy/local-tomcat/*.properties.example
+# Database exports contain production data and must never enter Git.
+deploy/sql/*.sql
 slss-git/

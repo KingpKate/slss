@@ -8,6 +8,7 @@ const ProductionList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedBatchName, setSelectedBatchName] = useState('');
+  const [selectedBatchModel, setSelectedBatchModel] = useState('');
   const [selectedBatchKeys, setSelectedBatchKeys] = useState<string[]>([]);
   const [filterContract, setFilterContract] = useState('');
   const [filterDate, setFilterDate] = useState('');
@@ -23,15 +24,29 @@ const ProductionList: React.FC = () => {
       .then(([data, tables]) => {
         const known = new Set((data as any[]).map(asset => String(asset.machine_sn || '').toLowerCase()).filter(Boolean));
         const virtualAssets:any[] = [];
+        const scanMetaByMachine = new Map<string, { createdAt?: string; batchName: string; model: string }>();
         (tables || []).forEach((table:any) => {
           const fields = table.template?.fields || [];
           (table.rows || []).forEach((row:any) => {
             const values = Object.fromEntries((row.values || []).map((value:any) => [value.fieldKey || value.field_key, value.value ?? value.fieldValue ?? '']));
             const valueItem = (key:string) => row.values?.find((value:any) => (value.fieldKey || value.field_key) === key);
-            const machineSn = String(values.machine_sn || '').trim();
-            if (!machineSn || known.has(machineSn.toLowerCase())) return;
+            // Templates created before the standard field key was introduced
+            // may use a custom key for the machine SN. Resolve it by label as
+            // well, otherwise that batch cannot be opened from a search hit.
+            const machineField = fields.find((field:any) =>
+              field.fieldKey === 'machine_sn' || /整机\s*SN|整机序列号/i.test(String(field.fieldLabel || ''))
+            );
+            const machineKey = machineField?.fieldKey || 'machine_sn';
+            const machineSn = String(values[machineKey] || '').trim();
+            if (machineSn) scanMetaByMachine.set(machineSn.toLowerCase(), { createdAt: table.createdAt, batchName: `SCAN_TABLE_${table.id}`, model: table.model || values.model || '' });
+            // Some historical completed rows were cancelled/closed before
+            // the machine SN was entered, while component SNs were already
+            // persisted. Keep such rows searchable by component SN instead
+            // of dropping them solely because machineSn is blank.
+            const virtualKey = machineSn ? machineSn.toLowerCase() : `scan_table_${table.id}_row_${row.rowNumber || row.row_number || ''}`;
+            if (machineSn && known.has(machineSn.toLowerCase())) return;
             const components = fields
-              .filter((field:any) => field.fieldKey !== 'machine_sn' && /sn|序列号/i.test(`${field.fieldKey} ${field.fieldLabel}`))
+              .filter((field:any) => field.fieldKey !== machineKey && /sn|序列号/i.test(`${field.fieldKey} ${field.fieldLabel}`))
               .map((field:any, index:number) => {
                 const serial = String(values[field.fieldKey] || '').trim();
                 let model = '';
@@ -42,17 +57,40 @@ const ProductionList: React.FC = () => {
                 const item = valueItem(field.fieldKey);
                 return { type: field.fieldLabel || field.fieldKey, model, serialNo: serial, operatorNo: item?.operatorNo || item?.operator_no || '' };
               }).filter((component:any) => component.serialNo);
-            virtualAssets.push({ machine_sn: machineSn, model: table.model || values.model || '', batch_name: `SCAN_TABLE_${table.id}`, batchCreatedAt: table.createdAt, created_at: table.createdAt, components });
-            known.add(machineSn.toLowerCase());
+            if (components.length || machineSn) {
+              virtualAssets.push({ machine_sn: machineSn, model: table.model || values.model || '', batch_name: `SCAN_TABLE_${table.id}`, batchCreatedAt: table.createdAt, created_at: table.createdAt, components, _virtualKey: virtualKey });
+              if (machineSn) known.add(machineSn.toLowerCase());
+            }
           });
         });
         setRemoteScanTables(tables || []);
-        setRemoteAssets([...(data as Asset[]), ...(virtualAssets as Asset[])]);
+        const enrichedAssets = (data as Asset[]).map(asset => {
+          const meta = scanMetaByMachine.get(String(asset.machine_sn || '').toLowerCase());
+          return meta ? { ...asset, batchCreatedAt: (asset as any).batchCreatedAt || meta.createdAt, batch_name: asset.batch_name || meta.batchName, model: asset.model || meta.model } : asset;
+        });
+        setRemoteAssets([...enrichedAssets, ...(virtualAssets as Asset[])]);
       })
       .catch(err => { console.error('加载生产资产失败', err); setLoadError(err?.message || '生产资产接口暂时不可用'); })
       .finally(() => setLoading(false));
   }, []);
   const [remoteAssets, setRemoteAssets] = useState<Asset[]>([]);
+
+  // Component SN searches must also resolve scan-only historical rows. Those
+  // rows may not have a machine SN or legacy Asset record, so query the
+  // authoritative repair lookup endpoint and merge its read-only projection
+  // into the result set.
+  React.useEffect(() => {
+    const term = appliedSearch.trim();
+    if (!term) return;
+    productionApi.repairLookup(term).then((asset:any) => {
+      if (!asset) return;
+      setRemoteAssets(previous => {
+        const key = `${asset.batch_name || asset.batchName || ''}|${asset.machine_sn || asset.machineSn || ''}|${term.toLowerCase()}`;
+        const withoutDuplicate = previous.filter(item => `${(item as any).batch_name || ''}|${item.machine_sn || ''}|${term.toLowerCase()}` !== key);
+        return [...withoutDuplicate, { ...asset, machine_sn: asset.machine_sn || asset.machineSn || '', batch_name: asset.batch_name || asset.batchName || '' } as Asset];
+      });
+    }).catch(() => undefined);
+  }, [appliedSearch]);
 
   // Enhanced Filter Logic: Search within ALL component SNs
   const sourceAssets = remoteAssets;
@@ -102,7 +140,10 @@ const ProductionList: React.FC = () => {
   ).values()
   );
   const batchKey = (result: { batchName?: string; model?: string }) => `${result.batchName || ''}::${result.model || ''}`;
-  const selectedBatchAssets = sourceAssets.filter(asset => asset.batch_name === selectedBatchName);
+  const selectedBatchAssets = sourceAssets.filter(asset => {
+    if (selectedBatchName) return asset.batch_name === selectedBatchName;
+    return Boolean(selectedBatchModel) && String(asset.model || '').trim() === selectedBatchModel;
+  });
   const componentTypeKey = (value: unknown) => String(value || '').toLowerCase().replace(/sn|序列号|型号|[^a-z0-9\u4e00-\u9fff]/g, '');
   const selectedBatchComponentTypes = Array.from(new Map(
     selectedBatchAssets
@@ -111,6 +152,10 @@ const ProductionList: React.FC = () => {
       .filter(([key]) => key)
   ).values());
   const matchedSerial = (value: unknown) => Boolean(appliedSearch && String(value || '').trim().toLowerCase() === appliedSearch.trim().toLowerCase());
+  const openBatch = (result: { batchName?: string; model?: string }) => {
+    setSelectedBatchName(result.batchName || '');
+    setSelectedBatchModel(result.model || '');
+  };
 
   // Get Lifecycle history for the selected asset
   const getAssetHistory = (sn: string): LifecycleEvent[] => {
@@ -148,21 +193,31 @@ const ProductionList: React.FC = () => {
       const machine = (scanRow.values || []).find((value:any) => (value.fieldKey || value.field_key) === 'machine_sn');
       return assetsByMachine.has(String(machine?.value || machine?.fieldValue || '').toLowerCase());
     }) : [];
+    // Keep the scan-table branch as an ordered matrix instead of an object keyed
+    // by display label. A template is allowed to have repeated labels (for
+    // example CPU SN / CPU SN and eight columns labelled 内存 SN); using an
+    // object here silently overwrote all but the last repeated column.
     const rows = templateFields.length && templateRows.length ? templateRows.map((scanRow:any) => {
-      const values = Object.fromEntries((scanRow.values || []).map((value:any) => [value.fieldKey || value.field_key, value.value ?? value.fieldValue ?? '']));
-      const machineSn = String(values.machine_sn || '').trim();
+      const values = new Map<string, string>();
+      (scanRow.values || []).forEach((value:any) => {
+        const key = String(value.fieldKey || value.field_key || '').trim();
+        if (key) values.set(key, String(value.value ?? value.fieldValue ?? ''));
+      });
+      const machineSn = String(values.get('machine_sn') || scanRow.machineSn || scanRow.machine_sn || '').trim();
       const asset:any = assetsByMachine.get(machineSn.toLowerCase());
       const components = asset?.components || [];
-      const row: Record<string, string> = {};
-      templateFields.forEach((field:any) => {
-        const key = field.fieldKey || field.field_key;
-        const label = field.fieldLabel || field.field_label || key;
-        if (key === 'machine_sn' || /整机.*sn|machine.*sn/i.test(`${key} ${label}`)) { row[label] = machineSn; return; }
-        if (/整机.*型号|^model$/i.test(`${key} ${label}`)) { row[label] = asset?.model || values[key] || ''; return; }
+      return templateFields.map((field:any) => {
+        const key = String(field.fieldKey || field.field_key || '').trim();
+        const label = String(field.fieldLabel || field.field_label || key);
+        // Raw scan values are authoritative. Only use the legacy asset
+        // component projection when the field has no persisted scan value.
+        const persisted = values.get(key);
+        if (persisted !== undefined) return persisted;
+        if (key === 'machine_sn' || /整机.*sn|machine.*sn/i.test(`${key} ${label}`)) return machineSn;
+        if (/整机.*型号|^model$/i.test(`${key} ${label}`)) return String(asset?.model || '');
         const part = components.find((component:any) => keyOf(component.type) === keyOf(label));
-        row[label] = /sn|序列号/i.test(`${key} ${label}`) ? (part?.serialNo || values[key] || '') : (part?.model || values[key] || '');
+        return /sn|序列号/i.test(`${key} ${label}`) ? String(part?.serialNo || '') : String(part?.model || '');
       });
-      return row;
     }) : batchAssets.map(asset => {
       const components = (asset as any).components || [];
       const row: Record<string, string> = templateFields.length ? {} : {
@@ -191,9 +246,27 @@ const ProductionList: React.FC = () => {
       });
       return row;
     });
-    const exportRows = rows.map(row => ({ '合同号': '', '发货日期': '', ...row }));
+    const uniqueTemplateHeaders = (() => {
+      const used = new Map<string, number>();
+      return templateFields.map((field:any) => {
+        const base = String(field.fieldLabel || field.field_label || field.fieldKey || field.field_key || '字段');
+        const occurrence = (used.get(base) || 0) + 1;
+        used.set(base, occurrence);
+        // Keep the first label unchanged for compatibility, but make repeated
+        // labels explicit in Excel so users can distinguish CPU2/memory DIMM
+        // columns instead of seeing apparently duplicated headers.
+        return occurrence === 1 ? base : `${base} ${occurrence}`;
+      });
+    })();
+    const exportHeaders = templateFields.length && templateRows.length
+      ? ['合同号', '发货日期', ...uniqueTemplateHeaders]
+      : ['合同号', '发货日期', ...Object.keys(rows[0] || {})];
+    const exportRows = templateFields.length && templateRows.length
+      ? rows.map((row:any[]) => ['', '', ...row])
+      : rows.map((row:any) => ['', '', ...exportHeaders.slice(2).map((header) => row[header] ?? '')]);
     const XLSX = await import('xlsx-js-style');
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    // AoA preserves duplicate column labels and exact template ordering.
+    const worksheet = XLSX.utils.aoa_to_sheet([exportHeaders, ...exportRows]);
     if (worksheet['!ref']) {
       const range = XLSX.utils.decode_range(worksheet['!ref']);
       for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex++) {
@@ -213,7 +286,7 @@ const ProductionList: React.FC = () => {
         }
       }
     }
-    worksheet['!cols'] = Object.keys(exportRows[0] || {}).map((key) => ({ wch: key.includes('SN') ? 28 : 22 }));
+    worksheet['!cols'] = exportHeaders.map((key) => ({ wch: key.includes('SN') || key.includes('序列号') ? 28 : 22 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '批次扫码数据');
     const safeBatchName = batchName.replace(/[\\/:*?"<>|]/g, '_');
@@ -311,7 +384,7 @@ const ProductionList: React.FC = () => {
                   <tr key={idx} className="hover:bg-emerald-50 transition-colors text-sm">
                     <td className="px-6 py-4 whitespace-nowrap"><input type="checkbox" aria-label={`选择批次 ${result.model}`} checked={selectedBatchKeys.includes(batchKey(result))} onChange={event => setSelectedBatchKeys(previous => event.target.checked ? [...new Set([...previous, batchKey(result)])] : previous.filter(key => key !== batchKey(result)))} /></td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-600">{result.batchCreatedAt ? new Date(result.batchCreatedAt).toLocaleString() : '—'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap"><button onClick={() => setSelectedBatchName(result.batchName)} className="font-semibold text-blue-700 hover:underline">{result.model}</button></td>
+                    <td className="px-6 py-4 whitespace-nowrap"><button onClick={() => openBatch(result)} className="font-semibold text-blue-700 hover:underline">{result.model}</button></td>
                     <td className="px-6 py-4 whitespace-nowrap font-mono text-gray-700">{result.matchedMachineSn}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-500 text-xs">
                       {result.batchName || '-'}
@@ -321,7 +394,7 @@ const ProductionList: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap font-medium">
                       <div className="flex items-center justify-end gap-3">
                       <button 
-                        onClick={() => setSelectedBatchName(result.batchName)}
+                        onClick={() => openBatch(result)}
                         className="flex items-center text-blue-600 hover:text-blue-900"
                       >
                         <Eye className="w-4 h-4 mr-1" /> 查看批次
@@ -361,7 +434,7 @@ const ProductionList: React.FC = () => {
         </div>
       </div>
 
-      {selectedBatchName && (
+      {(selectedBatchName || selectedBatchModel) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b bg-slate-50 px-6 py-4">
@@ -369,7 +442,7 @@ const ProductionList: React.FC = () => {
                 <h3 className="text-lg font-bold text-slate-900">批次扫码明细</h3>
                 <p className="mt-1 text-sm text-slate-500">批次：{selectedBatchName} · 共 {selectedBatchAssets.length} 台整机</p>
               </div>
-              <button onClick={() => setSelectedBatchName('')} className="text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
+              <button onClick={() => { setSelectedBatchName(''); setSelectedBatchModel(''); }} className="text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
             </div>
             <div className="max-h-[76vh] overflow-auto">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -442,7 +515,7 @@ const ProductionList: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {(selectedAsset as any).components?.length > 0 && (
                       <div className="md:col-span-2 overflow-hidden rounded-lg border border-cyan-200 bg-white">
-                        <div className="border-b border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900">整机扫码表 · 全部设备配件 SN</div>
+                        <div className="border-b border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900">整机流程单 · 全部设备配件 SN</div>
                         <table className="w-full text-sm">
                           <thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-4 py-2">配件</th><th className="px-4 py-2">型号</th><th className="px-4 py-2">SN</th><th className="px-4 py-2">操作员</th></tr></thead>
                           <tbody className="divide-y">{(selectedAsset as any).components.map((component:any,index:number)=><tr key={`${component.serialNo}-${index}`}><td className="px-4 py-2 font-medium">{component.type}</td><td className="px-4 py-2">{component.model || '—'}</td><td className="px-4 py-2 font-mono text-cyan-800">{component.serialNo}</td><td className="px-4 py-2 text-slate-500">{component.operatorNo || '—'}</td></tr>)}</tbody>

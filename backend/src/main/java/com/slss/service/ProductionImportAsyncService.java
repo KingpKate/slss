@@ -47,7 +47,11 @@ public class ProductionImportAsyncService {
  public void execute(Long id){
   var job=jobs.findById(id).orElseThrow();
   if("CANCELLED".equals(job.getStatus())||"CANCEL_REQUESTED".equals(job.getStatus())){finishCancelled(job);return;}
-  job.setStatus("RUNNING");job.setStartedAt(Instant.now());job.setLastHeartbeatAt(Instant.now());job.setNextAttemptAt(null);jobs.save(job);
+  // Atomic claim prevents two queue consumers or a manual replay from
+  // executing the same import concurrently.
+  var claimedAt=Instant.now();
+  if(jobs.claimForExecution(id,claimedAt)!=1)return;
+  job=jobs.findById(id).orElseThrow();
   try{
    var result=importer.importExcel(job.getBatchName(),new ByteArrayMultipartFile(job.getFileName(),job.getInputData()));
    job=jobs.findById(id).orElseThrow();

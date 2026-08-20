@@ -10,5 +10,9 @@ public class ScanTableValue {
  @Column(name="field_value") private String fieldValue;
  @Column(name="operator_no") private String operatorNo;
  @Column(name="scanned_at") private Instant scannedAt;
- public Long getId(){return id;} public ScanTableRow getRow(){return row;} public void setRow(ScanTableRow v){row=v;} public String getFieldKey(){return fieldKey;} public void setFieldKey(String v){fieldKey=v;} public String getFieldValue(){return fieldValue;} public void setFieldValue(String v){fieldValue=v;} public String getOperatorNo(){return operatorNo;} public void setOperatorNo(String v){operatorNo=v;} public Instant getScannedAt(){return scannedAt;} public void setScannedAt(Instant v){scannedAt=v;}
+ public Long getId(){return id;} public ScanTableRow getRow(){return row;} public void setRow(ScanTableRow v){row=v;} public String getFieldKey(){return fieldKey;} public void setFieldKey(String v){fieldKey=v;} public String getFieldValue(){return fieldValue;} public void setFieldValue(String v){fieldValue=v;} public String getOperatorNo(){
+   var completed=(row!=null&&row.getCompletedProcessKeys()!=null&&fieldKey!=null&&(row.getCompletedProcessKeys().contains(fieldKey+",")||row.getCompletedProcessKeys().endsWith(fieldKey)));
+   if((operatorNo==null||operatorNo.isBlank())&&completed) return row.getCompletedBy();
+   return operatorNo;
+ } public void setOperatorNo(String v){operatorNo=v;} public Instant getScannedAt(){return scannedAt;} public void setScannedAt(Instant v){scannedAt=v;}
 }
