@@ -22,6 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      # The backend WAR embeds ../dist. Each GitHub runner is isolated, so
+      # the frontend job's build output is not available here automatically.
+      - run: npm ci
+      - run: npm run build
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
