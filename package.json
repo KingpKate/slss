@@ -7,7 +7,8 @@
     "dev": "node node_modules/vite/bin/vite.js",
     "build": "node node_modules/vite/bin/vite.js build",
     "typecheck": "tsc --noEmit",
-    "preview": "node node_modules/vite/bin/vite.js preview"
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "docs:check": "node scripts/verify-documentation.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.0",
